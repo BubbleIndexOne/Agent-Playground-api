@@ -16,7 +16,7 @@ name = "agent-playground-backend-dev"
 [[env.dev.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "REPLACE_WITH_DEV_HYPERDRIVE_ID"
-localConnectionString = "postgresql://postgres:[YOUR-DEV-PASSWORD]@db.[YOUR-DEV-PROJECT-REF].supabase.co:5432/postgres"
+localConnectionString = "postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETfKUIS@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
 
 # Migration hook / command for development Supabase instance:
 # Wrangler Hyperdrive routes database traffic to external Postgres (Supabase).
@@ -33,7 +33,7 @@ name = "agent-playground-backend-prod"
 [[env.prod.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "REPLACE_WITH_PROD_HYPERDRIVE_ID"
-localConnectionString = "postgresql://postgres:[YOUR-PROD-PASSWORD]@db.[YOUR-PROD-PROJECT-REF].supabase.co:5432/postgres"
+localConnectionString = "postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 
 # Migration hook / command for production Supabase instance:
 # Apply schema migrations via hook:
