@@ -21,6 +21,7 @@ const STUBBED_BUILTINS = new Set([
   'tty',
   'url',
   'util',
+  'util/types',
   'zlib',
   'buffer',
 ]);
@@ -29,10 +30,9 @@ const nodeCompatPlugin = {
   name: 'node-compat',
   setup(build) {
     // Exact-match bare built-in names → ESM stub files
-    // (must be exact match to avoid wrongly remapping util/types → util.mjs/types)
-    build.onResolve({ filter: /^[a-z_]+$/ }, (args) => {
+    build.onResolve({ filter: /^[a-z_/]+$/ }, (args) => {
       if (STUBBED_BUILTINS.has(args.path)) {
-        return { path: stub(args.path) };
+        return { path: stub(args.path.replace('/', '_')) };
       }
     });
 
