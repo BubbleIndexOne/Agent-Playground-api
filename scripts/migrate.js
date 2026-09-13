@@ -112,10 +112,10 @@ async function runMigrations() {
         summary.push('', '#### Applied Files');
         newlyApplied.forEach((f) => summary.push(`- \`${f}\``));
       }
-      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\\n') + '\\n');
+      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\n') + '\n');
     }
 
-    console.log('--- Migration run finished successfully ---\\n');
+    console.log('--- Migration run finished successfully ---\n');
   } catch (err) {
     console.error('Migration failed:', err.message);
     process.exit(1);
