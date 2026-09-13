@@ -2,6 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 
+/**
+ * Apply pending SQL files in filename order and record successful migrations.
+ *
+ * The target environment comes from `TARGET_ENV`, the first command-line
+ * argument, or `dev`, in that order. `DATABASE_URL` overrides the corresponding
+ * environment-specific URL. The process exits with status 1 if configuration,
+ * connection, or migration execution fails.
+ */
 async function runMigrations() {
   const env = process.env.TARGET_ENV || process.argv[2] || 'dev';
   const isProd = env === 'prod' || env === 'production';
