@@ -1,76 +1,14 @@
-name: Deploy to Cloudflare (Hyperdrive)
-
+name: Deploy
 on:
   push:
-    branches:
-      - main
-      - dev
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target deployment environment'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - prod
+    branches: [main, master]
 
 jobs:
-  setup-environment:
-    runs-on: ubuntu-latest
-    outputs:
-      target_env: ${{ steps.set-env.outputs.target_env }}
-    steps:
-      - id: set-env
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "target_env=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref_name }}" = "main" ]; then
-            echo "target_env=prod" >> $GITHUB_OUTPUT
-          else
-            echo "target_env=dev" >> $GITHUB_OUTPUT
-          fi
-
   deploy:
-    needs: setup-environment
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci || npm install
-
-      - name: Build Project
-        run: npm run build
-
-      - name: Run Database Migrations (Supabase via Hyperdrive)
-        env:
-          TARGET_ENV: ${{ needs.setup-environment.outputs.target_env }}
-          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
-          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
-        run: |
-          echo "Running migration checks for environment: $TARGET_ENV"
-          if [ "$TARGET_ENV" = "prod" ]; then
-            npm run migrate:prod || echo "No pending prod migrations"
-          else
-            npm run migrate:dev || echo "No pending dev migrations"
-          fi
-
-      - name: Install Wrangler
-        run: npm install -g wrangler@latest
-
-      - name: Deploy to Cloudflare Workers with Hyperdrive
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: |
-          echo "Deploying to Cloudflare Worker with Hyperdrive for environment: ${{ needs.setup-environment.outputs.target_env }}"
-          wrangler deploy --env ${{ needs.setup-environment.outputs.target_env }}
+    uses: your-org/pipeline-repo/.github/workflows/api-deploy.yml@main
+    with:
+      environment: production
+      d1_database_name: {{REPO_NAME}}-db
+    secrets:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
