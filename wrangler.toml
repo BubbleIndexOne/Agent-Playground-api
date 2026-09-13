@@ -34,15 +34,6 @@ binding = "HYPERDRIVE"
 id = "afad88bd09374ee8ae9bbd3b03de18ab"
 localConnectionString = "postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 
-[env.prod]
-name = "agent-playground-backend-prod"
-
-# Hyperdrive connection to Supabase Prod database
-[[env.prod.hyperdrive]]
-binding = "HYPERDRIVE"
-id = "afad88bd09374ee8ae9bbd3b03de18ab"
-localConnectionString = "postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
-
 # Migration hook / command for production Supabase instance:
 # Apply schema migrations via hook:
 #   npm run migrate:prod
