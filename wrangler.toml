@@ -3,7 +3,6 @@ main = "src/main.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-
 # Migrations directory configuration (for migration scripts and tracking)
 # migrations_dir = "migrations"
 

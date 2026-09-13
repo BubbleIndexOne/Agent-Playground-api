@@ -1,14 +1,35 @@
-name: Deploy
+name: Deploy Backend Service
+
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - dev
 
 jobs:
-  deploy:
-    uses: your-org/pipeline-repo/.github/workflows/api-deploy.yml@main
+  deploy-dev:
+    if: github.ref == 'refs/heads/dev'
+    uses: BubbleIndexOne/Build-Pipeline/.github/workflows/hyperdrive-deploy.yml@main
     with:
-      environment: production
-      d1_database_name: {{REPO_NAME}}-db
+      environment: dev
+      run_migrations: true
     secrets:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DEV_SUPABASE_SERVICE_ROLE_KEY }}
+
+  deploy-prod:
+    if: github.ref == 'refs/heads/main'
+    uses: BubbleIndexOne/Build-Pipeline/.github/workflows/hyperdrive-deploy.yml@main
+    with:
+      environment: prod
+      
+      run_migrations: true
+    secrets:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}

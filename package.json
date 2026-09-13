@@ -9,10 +9,11 @@
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "start:prod": "node dist/main.js",
     "dev": "npm run start:dev",
-    "migrate:dev": "node -e \"console.log('Applying migrations from ./migrations to Dev Supabase via Hyperdrive...')\"",
-    "migrate:prod": "node -e \"console.log('Applying migrations from ./migrations to Prod Supabase via Hyperdrive...')\""
+    "migrate:dev": "node scripts/migrate.js dev",
+    "migrate:prod": "node scripts/migrate.js prod"
   },
   "dependencies": {
+    "@codegenie/serverless-express": "^4.17.1",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
     "@nestjs/core": "^10.4.15",
