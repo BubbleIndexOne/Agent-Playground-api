@@ -1,5 +1,5 @@
 name = "agent-playground-backend"
-main = "src/main.ts"
+main = "dist/worker.mjs"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
@@ -15,7 +15,7 @@ name = "agent-playground-backend-dev"
 # Hyperdrive connection to Supabase Dev database
 [[env.dev.hyperdrive]]
 binding = "HYPERDRIVE"
-id = "REPLACE_WITH_DEV_HYPERDRIVE_ID"
+id = "a6387124dba5424dbe426cec2bf32716"
 localConnectionString = "postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETfKUIS@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
 
 # Migration hook / command for development Supabase instance:
@@ -32,7 +32,7 @@ name = "agent-playground-backend-prod"
 # Hyperdrive connection to Supabase Prod database
 [[env.prod.hyperdrive]]
 binding = "HYPERDRIVE"
-id = "REPLACE_WITH_PROD_HYPERDRIVE_ID"
+id = "afad88bd09374ee8ae9bbd3b03de18ab"
 localConnectionString = "postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 
 # Migration hook / command for production Supabase instance:
