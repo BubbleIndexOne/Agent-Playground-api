@@ -10,7 +10,8 @@ compatibility_flags = ["nodejs_compat"]
 name = "agent-playground-backend-dev"
 
 # Hyperdrive binding — Supabase Dev database
-# localConnectionString is set in .dev.vars (git-ignored) for `wrangler dev`
+# For local development, set the untracked
+# WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE environment variable.
 [[env.dev.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "a6387124dba5424dbe426cec2bf32716"
