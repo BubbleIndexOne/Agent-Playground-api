@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
-import { apiReference } from '@scalar/hono-api-reference';
+import { swaggerUI } from '@hono/swagger-ui';
 import { authRouter } from './routes/auth';
 import { healthRouter } from './routes/health';
 import { APP_CONSTANTS } from './constants';
@@ -139,12 +139,11 @@ export function createApp() {
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));
 
-  // Scalar API reference UI at /api/docs
+  // Standard Swagger UI at /api/docs
   app.get(
     APP_CONSTANTS.SWAGGER_DOCS_PATH,
-    apiReference({
-      spec: { url: '/api/openapi.json' },
-      pageTitle: APP_CONSTANTS.SWAGGER_TITLE,
+    swaggerUI({
+      url: '/api/openapi.json',
     }),
   );
 
