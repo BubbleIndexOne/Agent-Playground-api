@@ -42,6 +42,29 @@ const nodeCompatPlugin = {
       path: args.path,
       external: true,
     }));
+
+    // Ignore pg-native and pg-cloudflare by resolving them to an empty module.
+    // If we mark them as external, esbuild emits a dynamic require which CF Workers reject.
+    build.onResolve({ filter: /^(pg-native|pg-cloudflare)$/ }, (args) => ({
+      path: args.path,
+      namespace: 'ignore',
+    }));
+    build.onLoad({ filter: /.*/, namespace: 'ignore' }, () => ({
+      contents: 'export default {}',
+    }));
+
+    // Intercept pg's stream.js to force it to use Node.js sockets instead of
+    // Cloudflare raw sockets. Hyperdrive intercepts Node.js sockets natively.
+    // If pg uses raw sockets, it bypasses Hyperdrive connection pooling.
+    build.onLoad({ filter: /pg[\\/]lib[\\/]stream\.js$/ }, async (args) => {
+      const fs = require('fs');
+      let text = await fs.promises.readFile(args.path, 'utf8');
+      text = text.replace(
+        'function isCloudflareRuntime() {',
+        'function isCloudflareRuntime() { return false;'
+      );
+      return { contents: text, loader: 'js' };
+    });
   },
 };
 
@@ -52,11 +75,6 @@ async function bundle() {
     platform: 'node',
     format: 'esm',
     plugins: [nodeCompatPlugin],
-    external: [
-      // pg tries to dynamically load optional native bindings — exclude them
-      'pg-native',
-      'pg-cloudflare',
-    ],
     outfile: 'dist/worker.mjs',
     logLevel: 'info',
   });
