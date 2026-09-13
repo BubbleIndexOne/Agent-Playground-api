@@ -1,0 +1,19 @@
+name = "{{REPO_NAME}}"
+main = "src/index.ts"
+compatibility_date = "{{TODAYS_DATE}}"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "{{REPO_NAME}}-db"
+database_id = "REPLACE_WITH_REAL_D1_ID"
+migrations_dir = "migrations"
+
+[env.production]
+name = "{{REPO_NAME}}-production"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "{{REPO_NAME}}-db"
+database_id = "REPLACE_WITH_REAL_D1_ID"
+migrations_dir = "migrations"

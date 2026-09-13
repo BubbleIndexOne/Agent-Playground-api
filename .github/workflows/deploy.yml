@@ -1,0 +1,14 @@
+name: Deploy
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  deploy:
+    uses: your-org/pipeline-repo/.github/workflows/api-deploy.yml@main
+    with:
+      environment: production
+      d1_database_name: {{REPO_NAME}}-db
+    secrets:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
