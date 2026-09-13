@@ -6,6 +6,7 @@ import { HEALTH_CONSTANTS } from '../constants';
 
 export const healthRouter = new Hono();
 
+/** Check database connectivity and return status, timestamp, and latency details. */
 async function checkDb() {
   const start = Date.now();
   try {

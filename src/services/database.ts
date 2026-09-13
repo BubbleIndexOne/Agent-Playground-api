@@ -37,6 +37,7 @@ export async function query<T extends QueryResultRow = any>(
   }
 }
 
+/** Query the database for its current timestamp. */
 export async function getCurrentTime(): Promise<string> {
   const result = await query<{ current_time: string }>(
     DATABASE_CONSTANTS.NOW_QUERY,

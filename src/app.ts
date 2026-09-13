@@ -126,6 +126,7 @@ const openApiSpec = {
 
 // ─── App factory ──────────────────────────────────────────────────────────────
 
+/** Create and configure the Hono application and its API routes. */
 export function createApp() {
   const app = new Hono();
 

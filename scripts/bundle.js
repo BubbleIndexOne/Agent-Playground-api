@@ -68,6 +68,7 @@ const nodeCompatPlugin = {
   },
 };
 
+/** Bundle the Cloudflare Worker entry point and report any build failures. */
 async function bundle() {
   const result = await esbuild.build({
     entryPoints: ['src/worker.ts'],
