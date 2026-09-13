@@ -62,8 +62,9 @@ const openApiSpec = {
           content: { 'application/json': { schema: { $ref: '#/components/schemas/SignUp' } } },
         },
         responses: {
-          201: { description: 'User created and tokens returned' },
+          201: { description: 'User created; email verification required' },
           400: { description: 'Validation error or signup failure' },
+          500: { description: 'Profile creation failed' },
         },
       },
     },

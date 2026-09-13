@@ -22,9 +22,9 @@ authRouter.post(
     const { email, password } = c.req.valid('json');
     const supabase = getSupabaseClient();
 
-    // Create user via admin API (auto-confirms email)
+    // Use the public signup flow so Supabase requires email verification.
     const { data: userData, error: createError } =
-      await supabase.auth.admin.createUser({ email, password, email_confirm: true });
+      await supabase.auth.signUp({ email, password });
 
     if (createError) {
       throw new HTTPException(400, { message: createError.message });
@@ -33,27 +33,24 @@ authRouter.post(
       throw new HTTPException(400, { message: 'User creation failed unexpectedly' });
     }
 
-    // Insert profile row
-    await supabase
+    // Insert the profile before reporting success so /auth/me can always resolve it.
+    const { error: profileError } = await supabase
       .from(AUTH_CONSTANTS.PROFILES_TABLE)
       .insert({ id: userData.user.id, email: userData.user.email });
-    // Profile insert errors are non-fatal (table may not yet exist on fresh env)
 
-    // Sign in to get tokens
-    const { data: sessionData, error: signInError } =
-      await supabase.auth.signInWithPassword({ email, password });
+    if (profileError) {
+      console.error('[Auth] Profile creation failed', profileError);
+      const { error: cleanupError } = await supabase.auth.admin.deleteUser(userData.user.id);
 
-    if (signInError || !sessionData.session) {
-      throw new HTTPException(400, {
-        message: signInError?.message || 'Failed to establish session after registration',
-      });
+      if (cleanupError) {
+        console.error('[Auth] Failed to remove user after profile creation failure', cleanupError);
+      }
+
+      throw new HTTPException(500, { message: 'Profile creation failed' });
     }
 
     return c.json(
-      {
-        accessToken: sessionData.session.access_token,
-        refreshToken: sessionData.session.refresh_token,
-      },
+      { message: 'Check your email to verify your account before signing in' },
       201,
     );
   },

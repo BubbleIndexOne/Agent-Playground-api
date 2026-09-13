@@ -2,26 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 
-/**
- * Dynamically parses database connection string from wrangler.toml
- * if not explicitly provided via environment variables.
- */
-function getConnectionStringFromWrangler(env) {
-  const wranglerPath = path.join(__dirname, '..', 'wrangler.toml');
-  if (!fs.existsSync(wranglerPath)) {
-    return null;
-  }
-
-  const content = fs.readFileSync(wranglerPath, 'utf8');
-  const isProd = env === 'prod' || env === 'production';
-  const sectionPattern = isProd ? '\\[env\\.production\\]' : '\\[env\\.dev\\]';
-  const regex = new RegExp(
-    `${sectionPattern}[\\s\\S]*?localConnectionString\\s*=\\s*"([^"]+)"`,
-  );
-  const match = content.match(regex);
-  return match ? match[1] : null;
-}
-
 async function runMigrations() {
   const env = process.env.TARGET_ENV || process.argv[2] || 'dev';
   const isProd = env === 'prod' || env === 'production';
@@ -31,21 +11,24 @@ async function runMigrations() {
   const connectionString =
     process.env.DATABASE_URL ||
     (isProd
-      ? process.env.PROD_DATABASE_URL || getConnectionStringFromWrangler('production')
-      : process.env.DEV_DATABASE_URL || getConnectionStringFromWrangler('dev'));
+      ? process.env.PROD_DATABASE_URL
+      : process.env.DEV_DATABASE_URL);
 
   if (!connectionString) {
     console.error(
       `Error: No database connection URL found for environment "${env}". Set DATABASE_URL or ${
         isProd ? 'PROD_DATABASE_URL' : 'DEV_DATABASE_URL'
-      } or configure localConnectionString in wrangler.toml.`,
+      }.`,
     );
     process.exit(1);
   }
 
   const client = new Client({
     connectionString,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
+    connectionTimeoutMillis: 5000,
+    query_timeout: 5000,
+    statement_timeout: 5000,
   });
 
   try {

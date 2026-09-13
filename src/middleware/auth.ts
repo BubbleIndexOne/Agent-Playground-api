@@ -40,10 +40,14 @@ export const requireAuth = createMiddleware(async (c, next) => {
 
   const { data, error } = await getSupabaseClient().auth.getUser(token);
 
-  if (error || !data.user) {
+  if (error) {
+    console.error('[Auth] Supabase user lookup failed', error);
     throw new HTTPException(401, {
-      message: error?.message || 'Invalid or expired access token',
+      message: 'Profile retrieval failed',
     });
+  }
+  if (!data.user) {
+    throw new HTTPException(401, { message: 'Invalid or expired access token' });
   }
 
   c.set('user', data.user as AuthUser);

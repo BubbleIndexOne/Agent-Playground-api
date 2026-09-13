@@ -59,8 +59,16 @@ const nodeCompatPlugin = {
     build.onLoad({ filter: /pg[\\/]lib[\\/]stream\.js$/ }, async (args) => {
       const fs = require('fs');
       let text = await fs.promises.readFile(args.path, 'utf8');
+      const cloudflareRuntimeMarker = 'function isCloudflareRuntime() {';
+
+      if (!text.includes(cloudflareRuntimeMarker)) {
+        throw new Error(
+          `Unable to disable pg's Cloudflare runtime branch: marker not found in ${args.path}`
+        );
+      }
+
       text = text.replace(
-        'function isCloudflareRuntime() {',
+        cloudflareRuntimeMarker,
         'function isCloudflareRuntime() { return false;'
       );
       return { contents: text, loader: 'js' };

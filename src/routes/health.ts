@@ -18,9 +18,10 @@ async function checkDb() {
       latencyMs: Date.now() - start,
     };
   } catch (err: any) {
+    console.error('[Health] Database check failed', err);
     return {
       environment: process.env.ENVIRONMENT || 'worker',
-      status: `error: ${err.message}`,
+      status: HEALTH_CONSTANTS.STATUS_UNAVAILABLE,
       currentTime: HEALTH_CONSTANTS.STATUS_UNAVAILABLE,
       latencyMs: Date.now() - start,
     };

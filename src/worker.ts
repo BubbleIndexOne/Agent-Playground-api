@@ -23,6 +23,7 @@ export default {
     // handler runs (services read from process.env lazily on first call).
     if (env?.HYPERDRIVE?.connectionString) {
       process.env.DATABASE_URL = env.HYPERDRIVE.connectionString;
+      process.env.DATABASE_CONNECTION_SOURCE = 'hyperdrive';
     }
     if (env?.SUPABASE_URL) {
       // If the URL changed (shouldn't happen in prod, but resets in dev),

@@ -21,9 +21,15 @@ export async function query<T extends QueryResultRow = any>(
     );
   }
 
+  const usesHyperdrive = process.env.DATABASE_CONNECTION_SOURCE === 'hyperdrive';
   const client = new Client({
     connectionString,
-    ssl: { rejectUnauthorized: false },
+    // Hyperdrive's generated URL contains its connection settings. Direct
+    // connections use Node's trusted CA store and verify the server certificate.
+    ...(usesHyperdrive ? {} : { ssl: { rejectUnauthorized: true } }),
+    connectionTimeoutMillis: DATABASE_CONSTANTS.DEFAULT_CONNECTION_TIMEOUT_MS,
+    query_timeout: DATABASE_CONSTANTS.DEFAULT_QUERY_TIMEOUT_MS,
+    statement_timeout: DATABASE_CONSTANTS.DEFAULT_STATEMENT_TIMEOUT_MS,
   });
 
   await client.connect();
