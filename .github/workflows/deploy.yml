@@ -22,9 +22,33 @@ jobs:
       - name: Run tests
         run: npm test
 
+  migrate:
+    name: Run Database Migrations
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run Migrations
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            npm run migrate:prod
+          else
+            npm run migrate:dev
+          fi
+        env:
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
   deploy:
     name: Deploy to Cloudflare
-    needs: test
+    needs: migrate
     uses: BubbleIndexOne/Build-Pipeline/.github/workflows/deploy.yml@main
     with:
       environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'dev' }}

@@ -25,7 +25,7 @@ async function runMigrations() {
 
   const client = new Client({
     connectionString,
-    ssl: { rejectUnauthorized: true },
+    ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 5000,
     query_timeout: 5000,
     statement_timeout: 5000,
