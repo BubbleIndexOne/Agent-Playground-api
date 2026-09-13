@@ -1,19 +1,40 @@
-name = "{{REPO_NAME}}"
-main = "src/index.ts"
-compatibility_date = "{{TODAYS_DATE}}"
+name = "agent-playground-backend"
+main = "src/main.ts"
+compatibility_date = "2024-09-01"
 compatibility_flags = ["nodejs_compat"]
 
-[[d1_databases]]
-binding = "DB"
-database_name = "{{REPO_NAME}}-db"
-database_id = "REPLACE_WITH_REAL_D1_ID"
+# Migrations directory configuration
 migrations_dir = "migrations"
 
-[env.production]
-name = "{{REPO_NAME}}-production"
+# ----------------------------------------------------
+# Development Environment
+# ----------------------------------------------------
+[env.dev]
+name = "agent-playground-backend-dev"
 
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "{{REPO_NAME}}-db"
-database_id = "REPLACE_WITH_REAL_D1_ID"
-migrations_dir = "migrations"
+# Hyperdrive connection to Supabase Dev database
+[[env.dev.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "REPLACE_WITH_DEV_HYPERDRIVE_ID"
+localConnectionString = "postgresql://postgres:[YOUR-DEV-PASSWORD]@db.[YOUR-DEV-PROJECT-REF].supabase.co:5432/postgres"
+
+# Migration hook / command for development Supabase instance:
+# Wrangler Hyperdrive routes database traffic to external Postgres (Supabase).
+# Apply schema migrations via hook:
+#   npm run migrate:dev OR wrangler hyperdrive sql-execute (when using direct execution)
+
+# ----------------------------------------------------
+# Production Environment
+# ----------------------------------------------------
+[env.prod]
+name = "agent-playground-backend-prod"
+
+# Hyperdrive connection to Supabase Prod database
+[[env.prod.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "REPLACE_WITH_PROD_HYPERDRIVE_ID"
+localConnectionString = "postgresql://postgres:[YOUR-PROD-PASSWORD]@db.[YOUR-PROD-PROJECT-REF].supabase.co:5432/postgres"
+
+# Migration hook / command for production Supabase instance:
+# Apply schema migrations via hook:
+#   npm run migrate:prod
