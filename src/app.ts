@@ -26,6 +26,31 @@ const openApiSpec = {
         description: 'Enter your Supabase access token',
       },
     },
+    schemas: {
+      SignUp: {
+        type: 'object',
+        required: ['email', 'password'],
+        properties: {
+          email: { type: 'string', format: 'email', example: 'agent.user@example.com' },
+          password: { type: 'string', minLength: 6, example: 'SecurePassword123!' },
+        },
+      },
+      Login: {
+        type: 'object',
+        required: ['email', 'password'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          password: { type: 'string' },
+        },
+      },
+      RefreshToken: {
+        type: 'object',
+        required: ['refreshToken'],
+        properties: {
+          refreshToken: { type: 'string' },
+        },
+      },
+    },
   },
   paths: {
     '/auth/signup': {
@@ -94,31 +119,6 @@ const openApiSpec = {
         tags: ['health'],
         summary: 'Database connectivity check',
         responses: { 200: { description: 'DB latency and timestamp' } },
-      },
-    },
-  },
-  components_schemas: {
-    SignUp: {
-      type: 'object',
-      required: ['email', 'password'],
-      properties: {
-        email: { type: 'string', format: 'email', example: 'agent.user@example.com' },
-        password: { type: 'string', minLength: 6, example: 'SecurePassword123!' },
-      },
-    },
-    Login: {
-      type: 'object',
-      required: ['email', 'password'],
-      properties: {
-        email: { type: 'string', format: 'email' },
-        password: { type: 'string' },
-      },
-    },
-    RefreshToken: {
-      type: 'object',
-      required: ['refreshToken'],
-      properties: {
-        refreshToken: { type: 'string' },
       },
     },
   },
