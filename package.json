@@ -8,7 +8,8 @@
     "dev": "npx wrangler dev --env dev",
     "migrate": "node scripts/migrate.js",
     "migrate:dev": "node scripts/migrate.js dev",
-    "migrate:prod": "node scripts/migrate.js prod"
+    "migrate:prod": "node scripts/migrate.js prod",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hono/swagger-ui": "^0.6.1",
@@ -23,6 +24,7 @@
     "@types/pg": "^8.23.1",
     "esbuild": "^0.28.2",
     "typescript": "^5.6.3",
+    "vitest": "^4.1.11",
     "wrangler": "^4.86.0"
   }
 }
