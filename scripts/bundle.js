@@ -30,7 +30,7 @@ async function bundle() {
       'readline',
     ],
     banner: {
-      js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+      js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url ?? 'file:///');",
     },
     outfile: 'dist/worker.mjs',
   });
