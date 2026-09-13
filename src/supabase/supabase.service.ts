@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SUPABASE_CONSTANTS } from '../common/constants';
 
 @Injectable()
 export class SupabaseService implements OnModuleInit {
@@ -21,14 +22,9 @@ export class SupabaseService implements OnModuleInit {
     }
 
     this.client = createClient(
-      supabaseUrl || 'https://placeholder.supabase.co',
-      supabaseServiceKey || 'placeholder-key',
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      },
+      supabaseUrl || SUPABASE_CONSTANTS.FALLBACK_URL,
+      supabaseServiceKey || SUPABASE_CONSTANTS.FALLBACK_SERVICE_ROLE_KEY,
+      SUPABASE_CONSTANTS.CLIENT_CONFIG,
     );
   }
 

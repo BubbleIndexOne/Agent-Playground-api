@@ -1,25 +1,21 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe, Logger, INestApplication } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import express from 'express';
 import serverlessExpress from '@codegenie/serverless-express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { APP_CONSTANTS, AUTH_CONSTANTS } from './common/constants';
 
 let cachedHandler: any;
 
-async function bootstrapServer() {
-  const expressApp = express();
-  const app = await NestFactory.create(AppModule, new ExpressAdapter(expressApp));
-
-  // Enable CORS
+/**
+ * Applies global filters, pipes, CORS, and Swagger documentation to NestJS instance
+ */
+function configureApp(app: INestApplication): void {
   app.enableCors();
-
-  // Global Exception Filter
   app.useGlobalFilters(new AllExceptionsFilter());
-
-  // Global Validation Pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -31,13 +27,10 @@ async function bootstrapServer() {
     }),
   );
 
-  // Swagger Documentation Configuration
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('Agent Playground Backend API')
-    .setDescription(
-      'API documentation for Agent Playground backend service (Milestone S1: Authentication)',
-    )
-    .setVersion('1.0')
+    .setTitle(APP_CONSTANTS.SWAGGER_TITLE)
+    .setDescription(APP_CONSTANTS.SWAGGER_DESCRIPTION)
+    .setVersion(APP_CONSTANTS.SWAGGER_VERSION)
     .addBearerAuth(
       {
         type: 'http',
@@ -47,17 +40,22 @@ async function bootstrapServer() {
         description: 'Enter your Bearer access token',
         in: 'header',
       },
-      'bearer',
+      AUTH_CONSTANTS.BEARER_AUTH_SCHEME_NAME,
     )
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document, {
+  SwaggerModule.setup(APP_CONSTANTS.SWAGGER_DOCS_PATH, app, document, {
     swaggerOptions: {
       persistAuthorization: true,
     },
   });
+}
 
+async function bootstrapServer() {
+  const expressApp = express();
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(expressApp));
+  configureApp(app);
   await app.init();
   return serverlessExpress({ app: expressApp });
 }
@@ -73,28 +71,13 @@ if (
   (async () => {
     const logger = new Logger('Bootstrap');
     const app = await NestFactory.create(AppModule);
-    app.enableCors();
-    app.useGlobalFilters(new AllExceptionsFilter());
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('Agent Playground Backend API')
-      .setVersion('1.0')
-      .addBearerAuth({ type: 'http', scheme: 'bearer' }, 'bearer')
-      .build();
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
-    SwaggerModule.setup('api/docs', app, document, {
-      swaggerOptions: { persistAuthorization: true },
-    });
-    const port = process.env.PORT || 3000;
+    configureApp(app);
+    const port = process.env.PORT || APP_CONSTANTS.DEFAULT_PORT;
     await app.listen(port);
     logger.log(`Server is running on http://localhost:${port}`);
-    logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
+    logger.log(
+      `Swagger docs at http://localhost:${port}/${APP_CONSTANTS.SWAGGER_DOCS_PATH}`,
+    );
   })();
 }
 

@@ -29,9 +29,10 @@ import {
   AuthenticatedRequest,
   SupabaseAuthGuard,
 } from './guards/supabase-auth.guard';
+import { AUTH_CONSTANTS } from '../common/constants';
 
-@ApiTags('auth')
-@Controller('auth')
+@ApiTags(AUTH_CONSTANTS.TAG)
+@Controller(AUTH_CONSTANTS.TAG)
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
@@ -117,7 +118,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(SupabaseAuthGuard)
-  @ApiBearerAuth('bearer')
+  @ApiBearerAuth(AUTH_CONSTANTS.BEARER_AUTH_SCHEME_NAME)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get current user profile',

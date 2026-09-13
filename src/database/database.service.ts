@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, QueryResult, QueryResultRow } from 'pg';
+import { DATABASE_CONSTANTS } from '../common/constants';
+import { getWranglerConnectionString } from '../common/utils/wrangler-config.util';
 
 export type DatabaseTarget = 'dev' | 'prod';
 
@@ -20,31 +22,54 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     const devUrl =
       this.configService.get<string>('DEV_DATABASE_URL') ||
-      'postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETfKUIS@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres';
+      this.configService.get<string>('DATABASE_URL') ||
+      getWranglerConnectionString('dev');
 
     const prodUrl =
       this.configService.get<string>('PROD_DATABASE_URL') ||
-      'postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres';
+      getWranglerConnectionString('production');
 
-    this.devPool = new Pool({
-      connectionString: devUrl,
-      ssl: { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 30000,
-    });
+    if (devUrl) {
+      this.devPool = new Pool({
+        connectionString: devUrl,
+        ssl: { rejectUnauthorized: false },
+        max: DATABASE_CONSTANTS.DEFAULT_MAX_POOL_CONNECTIONS,
+        idleTimeoutMillis: DATABASE_CONSTANTS.DEFAULT_IDLE_TIMEOUT_MS,
+        connectionTimeoutMillis: DATABASE_CONSTANTS.DEFAULT_CONNECTION_TIMEOUT_MS,
+      });
+    } else {
+      this.logger.warn(
+        'DEV_DATABASE_URL is not configured in environment or wrangler.toml.',
+      );
+    }
 
-    this.prodPool = new Pool({
-      connectionString: prodUrl,
-      ssl: { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 30000,
-    });
+    if (prodUrl) {
+      this.prodPool = new Pool({
+        connectionString: prodUrl,
+        ssl: { rejectUnauthorized: false },
+        max: DATABASE_CONSTANTS.DEFAULT_MAX_POOL_CONNECTIONS,
+        idleTimeoutMillis: DATABASE_CONSTANTS.DEFAULT_IDLE_TIMEOUT_MS,
+        connectionTimeoutMillis: DATABASE_CONSTANTS.DEFAULT_CONNECTION_TIMEOUT_MS,
+      });
+    } else {
+      this.logger.warn(
+        'PROD_DATABASE_URL is not configured in environment or wrangler.toml.',
+      );
+    }
 
-    this.logger.log('Database pools initialized for both Dev and Prod Supabase projects.');
+    this.logger.log('Database pools initialized.');
   }
 
   getPool(target: DatabaseTarget = 'dev'): Pool {
-    return target === 'prod' ? this.prodPool : this.devPool;
+    const pool = target === 'prod' ? this.prodPool : this.devPool;
+    if (!pool) {
+      throw new Error(
+        `Database connection pool for target "${target}" is not configured. Please set ${
+          target === 'prod' ? 'PROD_DATABASE_URL' : 'DEV_DATABASE_URL'
+        } in your environment or wrangler.toml.`,
+      );
+    }
+    return pool;
   }
 
   async query<T extends QueryResultRow = any>(
@@ -58,7 +83,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
 
   async getCurrentTime(target: DatabaseTarget = 'dev'): Promise<string> {
     const result = await this.query<{ current_time: string }>(
-      'SELECT NOW() as current_time',
+      DATABASE_CONSTANTS.NOW_QUERY,
       [],
       target,
     );

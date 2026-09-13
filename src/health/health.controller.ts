@@ -5,9 +5,10 @@ import {
   DatabaseHealthDetailDto,
   HealthResponseDto,
 } from './dto/health-response.dto';
+import { HEALTH_CONSTANTS } from '../common/constants';
 
-@ApiTags('health')
-@Controller('health')
+@ApiTags(HEALTH_CONSTANTS.TAG)
+@Controller(HEALTH_CONSTANTS.TAG)
 export class HealthController {
   constructor(private readonly databaseService: DatabaseService) {}
 
@@ -24,13 +25,15 @@ export class HealthController {
     type: HealthResponseDto,
   })
   async getOverallHealth(): Promise<HealthResponseDto> {
-    const checkDb = async (target: 'dev' | 'prod'): Promise<DatabaseHealthDetailDto> => {
+    const checkDb = async (
+      target: 'dev' | 'prod',
+    ): Promise<DatabaseHealthDetailDto> => {
       const start = Date.now();
       try {
         const currentTime = await this.databaseService.getCurrentTime(target);
         return {
           environment: target,
-          status: 'connected',
+          status: HEALTH_CONSTANTS.STATUS_CONNECTED,
           currentTime,
           latencyMs: Date.now() - start,
         };
@@ -38,7 +41,7 @@ export class HealthController {
         return {
           environment: target,
           status: `error: ${err.message}`,
-          currentTime: 'unavailable',
+          currentTime: HEALTH_CONSTANTS.STATUS_UNAVAILABLE,
           latencyMs: Date.now() - start,
         };
       }
@@ -50,7 +53,7 @@ export class HealthController {
     ]);
 
     return {
-      status: 'ok',
+      status: HEALTH_CONSTANTS.STATUS_OK,
       timestamp: new Date().toISOString(),
       databases: [devResult, prodResult],
     };
@@ -73,7 +76,7 @@ export class HealthController {
     const currentTime = await this.databaseService.getCurrentTime('dev');
     return {
       environment: 'dev',
-      status: 'connected',
+      status: HEALTH_CONSTANTS.STATUS_CONNECTED,
       currentTime,
       latencyMs: Date.now() - start,
     };
@@ -96,7 +99,7 @@ export class HealthController {
     const currentTime = await this.databaseService.getCurrentTime('prod');
     return {
       environment: 'prod',
-      status: 'connected',
+      status: HEALTH_CONSTANTS.STATUS_CONNECTED,
       currentTime,
       latencyMs: Date.now() - start,
     };

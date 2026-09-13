@@ -12,6 +12,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { RefreshResponseDto } from './dto/refresh-response.dto';
 import { ProfileResponseDto } from './dto/profile-response.dto';
+import { AUTH_CONSTANTS } from '../common/constants';
 
 @Injectable()
 export class AuthService {
@@ -43,7 +44,9 @@ export class AuthService {
     }
 
     // Insert corresponding row into profiles table
-    const { error: profileError } = await supabase.from('profiles').insert({
+    const { error: profileError } = await supabase
+      .from(AUTH_CONSTANTS.PROFILES_TABLE)
+      .insert({
       id: userData.user.id,
       email: userData.user.email,
     });
@@ -128,7 +131,7 @@ export class AuthService {
     const supabase = this.supabaseService.getClient();
 
     const { data, error } = await supabase
-      .from('profiles')
+      .from(AUTH_CONSTANTS.PROFILES_TABLE)
       .select('*')
       .eq('id', userId)
       .maybeSingle();

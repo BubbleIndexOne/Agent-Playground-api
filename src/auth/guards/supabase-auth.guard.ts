@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { SupabaseService } from '../../supabase/supabase.service';
+import { AUTH_CONSTANTS } from '../../common/constants';
 
 export interface AuthenticatedRequest extends Request {
   user?: any;
@@ -26,7 +27,7 @@ export class SupabaseAuthGuard implements CanActivate {
     const [scheme, token] = authHeader.split(' ');
     if (scheme !== 'Bearer' || !token) {
       throw new UnauthorizedException(
-        'Invalid authorization header format. Expected Bearer <token>',
+        `Invalid authorization header format. Expected ${AUTH_CONSTANTS.BEARER_AUTH_HEADER_PREFIX}<token>`,
       );
     }
 

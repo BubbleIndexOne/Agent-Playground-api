@@ -2,18 +2,46 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 
+/**
+ * Dynamically parses database connection string from wrangler.toml
+ * if not explicitly provided via environment variables.
+ */
+function getConnectionStringFromWrangler(env) {
+  const wranglerPath = path.join(__dirname, '..', 'wrangler.toml');
+  if (!fs.existsSync(wranglerPath)) {
+    return null;
+  }
+
+  const content = fs.readFileSync(wranglerPath, 'utf8');
+  const isProd = env === 'prod' || env === 'production';
+  const sectionPattern = isProd ? '\\[env\\.production\\]' : '\\[env\\.dev\\]';
+  const regex = new RegExp(
+    `${sectionPattern}[\\s\\S]*?localConnectionString\\s*=\\s*"([^"]+)"`,
+  );
+  const match = content.match(regex);
+  return match ? match[1] : null;
+}
+
 async function runMigrations() {
   const env = process.env.TARGET_ENV || process.argv[2] || 'dev';
+  const isProd = env === 'prod' || env === 'production';
+
   console.log(`\n--- Running Migrations for Target Environment: ${env.toUpperCase()} ---`);
 
-  const isProd = env === 'prod' || env === 'production';
   const connectionString =
     process.env.DATABASE_URL ||
     (isProd
-      ? process.env.PROD_DATABASE_URL ||
-        'postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres'
-      : process.env.DEV_DATABASE_URL ||
-        'postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETfKUIS@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres');
+      ? process.env.PROD_DATABASE_URL || getConnectionStringFromWrangler('production')
+      : process.env.DEV_DATABASE_URL || getConnectionStringFromWrangler('dev'));
+
+  if (!connectionString) {
+    console.error(
+      `Error: No database connection URL found for environment "${env}". Set DATABASE_URL or ${
+        isProd ? 'PROD_DATABASE_URL' : 'DEV_DATABASE_URL'
+      } or configure localConnectionString in wrangler.toml.`,
+    );
+    process.exit(1);
+  }
 
   const client = new Client({
     connectionString,
