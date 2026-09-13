@@ -1,3 +1,13 @@
+/**
+ * LOCAL NODE.JS ONLY — do NOT import this file from any Worker-bundled source.
+ *
+ * This utility reads wrangler.toml using Node.js `fs`/`path` APIs which are
+ * not available in the Cloudflare Worker V8 isolate runtime.
+ *
+ * Usage:
+ *  - scripts/migrate.js  ✅ (runs in Node.js locally)
+ *  - src/**              ❌ (bundled into Worker — will crash at runtime)
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 

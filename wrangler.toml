@@ -3,25 +3,17 @@ main = "dist/worker.mjs"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-# Migrations directory configuration (for migration scripts and tracking)
-# migrations_dir = "migrations"
-
 # ----------------------------------------------------
 # Development Environment
 # ----------------------------------------------------
 [env.dev]
 name = "agent-playground-backend-dev"
 
-# Hyperdrive connection to Supabase Dev database
+# Hyperdrive binding — Supabase Dev database
+# localConnectionString is set in .dev.vars (git-ignored) for `wrangler dev`
 [[env.dev.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "a6387124dba5424dbe426cec2bf32716"
-localConnectionString = "postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETfKUIS@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
-
-# Migration hook / command for development Supabase instance:
-# Wrangler Hyperdrive routes database traffic to external Postgres (Supabase).
-# Apply schema migrations via hook:
-#   npm run migrate:dev OR wrangler hyperdrive sql-execute (when using direct execution)
 
 # ----------------------------------------------------
 # Production Environment
@@ -29,11 +21,7 @@ localConnectionString = "postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETf
 [env.production]
 name = "agent-playground-backend-prod"
 
+# Hyperdrive binding — Supabase Production database
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "afad88bd09374ee8ae9bbd3b03de18ab"
-localConnectionString = "postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
-
-# Migration hook / command for production Supabase instance:
-# Apply schema migrations via hook:
-#   npm run migrate:prod

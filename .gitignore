@@ -2,6 +2,9 @@
 /dist
 /build
 
+# Wrangler local dev vars (contains credentials — never commit)
+.dev.vars
+
 # Dependencies
 /node_modules
 

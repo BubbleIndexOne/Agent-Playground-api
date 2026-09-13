@@ -60,30 +60,22 @@ async function bootstrapServer() {
   return serverlessExpress({ app: expressApp });
 }
 
-// Local standalone execution (npm run dev / node dist/main.js)
-if (
-  typeof process !== 'undefined' &&
-  process.env &&
-  process.env.NODE_ENV !== 'worker' &&
-  !process.env.CF_PAGES &&
-  require.main === module
-) {
-  (async () => {
-    const logger = new Logger('Bootstrap');
-    const app = await NestFactory.create(AppModule);
-    configureApp(app);
-    const port = process.env.PORT || APP_CONSTANTS.DEFAULT_PORT;
-    await app.listen(port);
-    logger.log(`Server is running on http://localhost:${port}`);
-    logger.log(
-      `Swagger docs at http://localhost:${port}/${APP_CONSTANTS.SWAGGER_DOCS_PATH}`,
-    );
-  })();
-}
-
 // Cloudflare Worker Fetch Handler
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+    // Inject Cloudflare Worker bindings into process.env so NestJS ConfigService
+    // and DatabaseService can read them without any fs/path usage.
+    // This must happen BEFORE bootstrapServer() so onModuleInit picks them up.
+    if (env?.HYPERDRIVE?.connectionString) {
+      process.env.DATABASE_URL = env.HYPERDRIVE.connectionString;
+    }
+    if (env?.SUPABASE_URL) {
+      process.env.SUPABASE_URL = env.SUPABASE_URL;
+    }
+    if (env?.SUPABASE_SERVICE_ROLE_KEY) {
+      process.env.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+    }
+
     if (!cachedHandler) {
       cachedHandler = await bootstrapServer();
     }
