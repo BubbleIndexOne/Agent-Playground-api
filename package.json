@@ -4,7 +4,7 @@
   "description": "Agent Playground Backend API Service (Milestone S1)",
   "private": true,
   "scripts": {
-    "build": "node scripts/migrate.js && tsc -p tsconfig.build.json && esbuild src/main.ts --bundle --platform=node --format=esm --external:@nestjs/microservices --external:@nestjs/websockets --external:class-transformer/storage --outfile=dist/worker.mjs",
+    "build": "node scripts/migrate.js && tsc -p tsconfig.build.json && node scripts/bundle.js",
     "start": "node dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "start:prod": "node dist/main.js",
