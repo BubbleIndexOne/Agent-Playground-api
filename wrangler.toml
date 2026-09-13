@@ -14,6 +14,7 @@ name = "agent-playground-backend-dev"
 [[env.dev.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "a6387124dba5424dbe426cec2bf32716"
+localConnectionString = "postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETfKUIS@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
 
 # ----------------------------------------------------
 # Production Environment

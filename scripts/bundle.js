@@ -74,6 +74,7 @@ async function bundle() {
     bundle: true,
     platform: 'node',
     format: 'esm',
+    inject: ['./scripts/stubs/globals.js'],
     plugins: [nodeCompatPlugin],
     outfile: 'dist/worker.mjs',
     logLevel: 'info',
