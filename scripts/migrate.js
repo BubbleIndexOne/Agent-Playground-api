@@ -6,9 +6,10 @@ async function runMigrations() {
   const env = process.env.TARGET_ENV || process.argv[2] || 'dev';
   console.log(`\n--- Running Migrations for Target Environment: ${env.toUpperCase()} ---`);
 
+  const isProd = env === 'prod' || env === 'production';
   const connectionString =
     process.env.DATABASE_URL ||
-    (env === 'prod'
+    (isProd
       ? process.env.PROD_DATABASE_URL ||
         'postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres'
       : process.env.DEV_DATABASE_URL ||

@@ -1,4 +1,4 @@
-name: Deploy Backend Service
+name: Deploy
 
 on:
   push:
@@ -7,20 +7,10 @@ on:
       - dev
 
 jobs:
-  deploy-dev:
-    if: github.ref == 'refs/heads/dev'
+  deploy:
     uses: BubbleIndexOne/Build-Pipeline/.github/workflows/deploy.yml@main
     with:
-      environment: dev
-    secrets:
-      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-
-  deploy-prod:
-    if: github.ref == 'refs/heads/main'
-    uses: BubbleIndexOne/Build-Pipeline/.github/workflows/deploy.yml@main
-    with:
-      environment: prod
+      environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'dev' }}
     secrets:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}

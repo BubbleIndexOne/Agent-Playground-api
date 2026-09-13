@@ -26,6 +26,14 @@ localConnectionString = "postgresql://postgres.kvxhozhsstdtlrqeaxgs:CTnU6iLEuETf
 # ----------------------------------------------------
 # Production Environment
 # ----------------------------------------------------
+[env.production]
+name = "agent-playground-backend-prod"
+
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "afad88bd09374ee8ae9bbd3b03de18ab"
+localConnectionString = "postgresql://postgres.egnpcdukuzckjxuwlypn:t5usnRNZBhV83Mha@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
+
 [env.prod]
 name = "agent-playground-backend-prod"
 
