@@ -66,9 +66,14 @@ async function runMigrations() {
     const { rows } = await client.query('SELECT name FROM _migrations;');
     const appliedNames = new Set(rows.map((r) => r.name));
 
+    const newlyApplied = [];
+    const alreadyApplied = [];
+    const skippedFiles = [];
+
     for (const file of files) {
       if (appliedNames.has(file)) {
         console.log(`✓ Migration ${file} already applied.`);
+        alreadyApplied.push(file);
         continue;
       }
 
@@ -78,6 +83,7 @@ async function runMigrations() {
 
       if (!sql.trim() || sql.trim().startsWith('-- schema pasted here manually')) {
         console.log(`⚠ Skipped placeholder/empty migration: ${file}`);
+        skippedFiles.push(file);
         continue;
       }
 
@@ -87,11 +93,26 @@ async function runMigrations() {
         await client.query('INSERT INTO _migrations (name) VALUES ($1);', [file]);
         await client.query('COMMIT');
         console.log(`✓ Successfully applied ${file}`);
+        newlyApplied.push(file);
       } catch (err) {
         await client.query('ROLLBACK');
         console.error(`✗ Error applying ${file}:`, err.message);
         throw err;
       }
+    }
+
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      const summary = [
+        `### 🗄️ Database Migrations (${env.toUpperCase()})`,
+        `- **Newly Applied:** ${newlyApplied.length}`,
+        `- **Already Applied:** ${alreadyApplied.length}`,
+        `- **Skipped/Empty:** ${skippedFiles.length}`,
+      ];
+      if (newlyApplied.length > 0) {
+        summary.push('', '#### Applied Files');
+        newlyApplied.forEach((f) => summary.push(`- \`${f}\``));
+      }
+      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\n') + '\n');
     }
 
     console.log('--- Migration run finished successfully ---\n');
