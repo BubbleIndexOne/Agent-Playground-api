@@ -28,6 +28,7 @@ name = "agent-playground-backend-prod"
 
 [env.production.vars]
 ENVIRONMENT = "production"
+SUPABASE_URL = "https://egnpcdukuzckjxuwlypn.supabase.co"
 
 # Hyperdrive binding — Supabase Production database
 [[env.production.hyperdrive]]
