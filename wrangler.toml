@@ -12,6 +12,7 @@ name = "agent-playground-backend-dev"
 [env.dev.vars]
 ENVIRONMENT = "dev"
 SUPABASE_URL = "https://kvxhozhsstdtlrqeaxgs.supabase.co"
+FRONTEND_URL = "http://localhost:3000"
 
 # Hyperdrive binding — Supabase Dev database
 # For local development, set the untracked
@@ -29,6 +30,7 @@ name = "agent-playground-backend-prod"
 [env.production.vars]
 ENVIRONMENT = "production"
 SUPABASE_URL = "https://egnpcdukuzckjxuwlypn.supabase.co"
+FRONTEND_URL = "https://agent-playground.bubbleindexone.com"
 
 # Hyperdrive binding — Supabase Production database
 [[env.production.hyperdrive]]

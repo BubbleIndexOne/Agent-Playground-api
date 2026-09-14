@@ -25,6 +25,7 @@ const ENV_KEYS = [
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'ENVIRONMENT',
+  'FRONTEND_URL',
 ] as const;
 
 describe('Cloudflare Worker entry point', () => {
@@ -50,6 +51,7 @@ describe('Cloudflare Worker entry point', () => {
       SUPABASE_URL: 'https://project.supabase.co',
       SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
       ENVIRONMENT: 'preview',
+      FRONTEND_URL: 'https://app.example.com',
     };
     const ctx = { waitUntil: vi.fn() } as any;
 
@@ -61,6 +63,7 @@ describe('Cloudflare Worker entry point', () => {
     expect(process.env.SUPABASE_URL).toBe('https://project.supabase.co');
     expect(process.env.SUPABASE_SERVICE_ROLE_KEY).toBe('service-role-key');
     expect(process.env.ENVIRONMENT).toBe('preview');
+    expect(process.env.FRONTEND_URL).toBe('https://app.example.com');
     expect(workerMocks.resetSupabaseClient).toHaveBeenCalledOnce();
     expect(workerMocks.appFetch).toHaveBeenCalledWith(request, env, ctx);
   });

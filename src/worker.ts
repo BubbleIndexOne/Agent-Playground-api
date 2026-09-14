@@ -8,6 +8,7 @@ interface CloudflareEnv {
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   ENVIRONMENT?: string;
+  FRONTEND_URL?: string;
 }
 
 // ─── App singleton ────────────────────────────────────────────────────────────
@@ -38,6 +39,9 @@ export default {
     }
     if (env?.ENVIRONMENT) {
       process.env.ENVIRONMENT = env.ENVIRONMENT;
+    }
+    if (env?.FRONTEND_URL) {
+      process.env.FRONTEND_URL = env.FRONTEND_URL;
     }
 
     return app.fetch(request, env, ctx);

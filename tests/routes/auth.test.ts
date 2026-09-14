@@ -136,6 +136,26 @@ describe('authentication routes', () => {
       expect(supabaseMocks.signInWithPassword).not.toHaveBeenCalled();
     });
 
+    it('attaches emailRedirectTo when FRONTEND_URL is configured', async () => {
+      process.env.FRONTEND_URL = 'https://portal.example.com/';
+
+      const response = await app.request(jsonRequest('/auth/signup', {
+        email: 'agent@example.com',
+        password: 'secret1',
+      }));
+
+      expect(response.status).toBe(201);
+      expect(supabaseMocks.signUp).toHaveBeenCalledWith({
+        email: 'agent@example.com',
+        password: 'secret1',
+        options: {
+          emailRedirectTo: 'https://portal.example.com/auth/callback',
+        },
+      });
+
+      delete process.env.FRONTEND_URL;
+    });
+
     it('deletes the new auth user when profile insertion fails', async () => {
       const profileError = { message: 'profiles table missing' };
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
