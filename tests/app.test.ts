@@ -48,9 +48,38 @@ describe('application factory', () => {
     ]);
     expect(spec.paths['/auth/me'].get.security).toEqual([{ bearer: [] }]);
     expect(spec.paths['/auth/signup'].post.responses).toMatchObject({
-      201: { description: 'User created; email verification required' },
-      500: { description: 'Profile creation failed' },
+      201: {
+        description: 'User created; email verification required',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/SignUpResponse' } } },
+      },
+      400: {
+        description: 'Validation error or signup failure',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+      },
+      500: {
+        description: 'Profile creation failed',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+      },
     });
+
+    expect(spec.components.schemas).toHaveProperty('SignUpResponse');
+    expect(spec.components.schemas).toHaveProperty('AuthTokensResponse');
+    expect(spec.components.schemas).toHaveProperty('UserProfileResponse');
+    expect(spec.components.schemas).toHaveProperty('ErrorResponse');
+    expect(spec.components.schemas).toHaveProperty('HealthResponse');
+    expect(spec.components.schemas).toHaveProperty('DatabaseHealthResponse');
+
+    // Verify every endpoint response contains an application/json schema definition
+    for (const [pathKey, pathItem] of Object.entries<any>(spec.paths)) {
+      for (const [method, operation] of Object.entries<any>(pathItem)) {
+        for (const [statusCode, responseObj] of Object.entries<any>(operation.responses)) {
+          expect(
+            responseObj.content?.['application/json']?.schema,
+            `Missing application/json schema for ${method.toUpperCase()} ${pathKey} [${statusCode}]`,
+          ).toBeDefined();
+        }
+      }
+    }
   });
 
   it('serves Swagger UI configured to load the OpenAPI document', async () => {
