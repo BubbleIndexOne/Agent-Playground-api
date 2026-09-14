@@ -10,6 +10,7 @@ const supabaseMocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   from: vi.fn(),
   insert: vi.fn(),
+  upsert: vi.fn(),
   select: vi.fn(),
   eq: vi.fn(),
   maybeSingle: vi.fn(),
@@ -46,6 +47,7 @@ describe('authentication routes', () => {
   const app = createAuthApp();
   const tableQuery = {
     insert: supabaseMocks.insert,
+    upsert: supabaseMocks.upsert,
     select: supabaseMocks.select,
     eq: supabaseMocks.eq,
     maybeSingle: supabaseMocks.maybeSingle,
@@ -69,6 +71,7 @@ describe('authentication routes', () => {
     supabaseMocks.select.mockReturnValue(tableQuery);
     supabaseMocks.eq.mockReturnValue(tableQuery);
     supabaseMocks.insert.mockResolvedValue({ error: null });
+    supabaseMocks.upsert.mockResolvedValue({ error: null });
     supabaseMocks.signUp.mockResolvedValue({
       data: { user: { id: 'user-1', email: 'agent@example.com' } },
       error: null,
@@ -126,7 +129,7 @@ describe('authentication routes', () => {
         password: 'secret1',
       });
       expect(supabaseMocks.from).toHaveBeenCalledWith('profiles');
-      expect(supabaseMocks.insert).toHaveBeenCalledWith({
+      expect(supabaseMocks.upsert).toHaveBeenCalledWith({
         id: 'user-1',
         email: 'agent@example.com',
       });
@@ -136,7 +139,7 @@ describe('authentication routes', () => {
     it('deletes the new auth user when profile insertion fails', async () => {
       const profileError = { message: 'profiles table missing' };
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      supabaseMocks.insert.mockResolvedValue({ error: profileError });
+      supabaseMocks.upsert.mockResolvedValue({ error: profileError });
 
       const response = await app.request(jsonRequest('/auth/signup', {
         email: 'agent@example.com',
@@ -153,7 +156,7 @@ describe('authentication routes', () => {
       const profileError = { message: 'profile unavailable' };
       const cleanupError = { message: 'cleanup unavailable' };
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      supabaseMocks.insert.mockResolvedValue({ error: profileError });
+      supabaseMocks.upsert.mockResolvedValue({ error: profileError });
       supabaseMocks.deleteUser.mockResolvedValue({ error: cleanupError });
 
       const response = await app.request(jsonRequest('/auth/signup', {

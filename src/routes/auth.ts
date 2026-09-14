@@ -33,10 +33,12 @@ authRouter.post(
       throw new HTTPException(400, { message: 'User creation failed unexpectedly' });
     }
 
-    // Insert the profile before reporting success so /auth/me can always resolve it.
+    // Use upsert so that if the database trigger (handle_new_user) already created
+    // the profile record upon auth.users creation, this safely updates/attaches the email
+    // without failing with a duplicate key error.
     const { error: profileError } = await supabase
       .from(AUTH_CONSTANTS.PROFILES_TABLE)
-      .insert({ id: userData.user.id, email: userData.user.email });
+      .upsert({ id: userData.user.id, email: userData.user.email });
 
     if (profileError) {
       console.error('[Auth] Profile creation failed', profileError);
