@@ -115,6 +115,15 @@ async function runMigrations() {
       fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\n') + '\n');
     }
 
+    if (newlyApplied.length > 0) {
+      try {
+        await client.query("NOTIFY pgrst, 'reload schema';");
+        console.log('✓ Notified PostgREST to reload schema cache.');
+      } catch (notifyErr) {
+        // Safe to ignore if not running against Supabase/PostgREST
+      }
+    }
+
     console.log('--- Migration run finished successfully ---\n');
   } catch (err) {
     console.error('Migration failed:', err.message);

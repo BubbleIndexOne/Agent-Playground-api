@@ -149,7 +149,7 @@ describe('authentication routes', () => {
         email: 'agent@example.com',
         password: 'secret1',
         options: {
-          emailRedirectTo: 'https://portal.example.com/auth/callback',
+          emailRedirectTo: 'https://portal.example.com',
         },
       });
 

@@ -23,10 +23,10 @@ authRouter.post(
     const supabase = getSupabaseClient();
 
     // If FRONTEND_URL is configured in project environment, pass emailRedirectTo
-    // so Supabase redirects the user to the configured frontend auth callback.
+    // so Supabase redirects the user to the configured frontend upon email verification.
     const frontendUrl = process.env.FRONTEND_URL;
     const emailRedirectTo = frontendUrl
-      ? `${frontendUrl.replace(/\/+$/, '')}/auth/callback`
+      ? frontendUrl.replace(/\/+$/, '')
       : undefined;
 
     // Use the public signup flow so Supabase requires email verification.
