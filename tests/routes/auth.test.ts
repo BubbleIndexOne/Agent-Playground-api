@@ -167,7 +167,10 @@ describe('authentication routes', () => {
       }));
 
       expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({ statusCode: 500, message: 'Profile creation failed' });
+      expect(await response.json()).toEqual({
+        statusCode: 500,
+        message: 'Profile creation failed: profiles table missing',
+      });
       expect(supabaseMocks.deleteUser).toHaveBeenCalledWith('user-1');
       expect(consoleError).toHaveBeenCalledWith('[Auth] Profile creation failed', profileError);
     });
@@ -185,7 +188,10 @@ describe('authentication routes', () => {
       }));
 
       expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({ statusCode: 500, message: 'Profile creation failed' });
+      expect(await response.json()).toEqual({
+        statusCode: 500,
+        message: 'Profile creation failed: profile unavailable',
+      });
       expect(consoleError).toHaveBeenCalledWith(
         '[Auth] Failed to remove user after profile creation failure',
         cleanupError,

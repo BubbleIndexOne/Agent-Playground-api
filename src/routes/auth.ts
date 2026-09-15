@@ -59,7 +59,9 @@ authRouter.post(
         console.error('[Auth] Failed to remove user after profile creation failure', cleanupError);
       }
 
-      throw new HTTPException(500, { message: 'Profile creation failed' });
+      throw new HTTPException(500, {
+        message: `Profile creation failed: ${profileError.message || JSON.stringify(profileError)}`,
+      });
     }
 
     return c.json(
