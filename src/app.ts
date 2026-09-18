@@ -23,7 +23,7 @@ const openApiSpec = {
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'Enter your Supabase access token',
+        description: 'Enter your JWT access token',
       },
     },
     schemas: {
@@ -41,7 +41,7 @@ const openApiSpec = {
         properties: {
           message: {
             type: 'string',
-            example: 'Check your email to verify your account before signing in',
+            example: 'Account created successfully',
           },
         },
       },
@@ -157,15 +157,15 @@ const openApiSpec = {
         },
         responses: {
           201: {
-            description: 'User created; email verification required',
+            description: 'Account created successfully',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/SignUpResponse' } } },
           },
           400: {
-            description: 'Validation error or signup failure',
+            description: 'Validation error',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
           },
-          500: {
-            description: 'Profile creation failed',
+          409: {
+            description: 'Email already registered',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
           },
         },

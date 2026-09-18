@@ -49,15 +49,15 @@ describe('application factory', () => {
     expect(spec.paths['/auth/me'].get.security).toEqual([{ bearer: [] }]);
     expect(spec.paths['/auth/signup'].post.responses).toMatchObject({
       201: {
-        description: 'User created; email verification required',
+        description: 'Account created successfully',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/SignUpResponse' } } },
       },
       400: {
-        description: 'Validation error or signup failure',
+        description: 'Validation error',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
       },
-      500: {
-        description: 'Profile creation failed',
+      409: {
+        description: 'Email already registered',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
       },
     });

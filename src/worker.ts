@@ -1,14 +1,11 @@
 import { createApp } from './app';
-import { resetSupabaseClient } from './services/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface CloudflareEnv {
   HYPERDRIVE?: { connectionString: string };
-  SUPABASE_URL?: string;
-  SUPABASE_SERVICE_ROLE_KEY?: string;
+  SECRET_KEY?: string;
   ENVIRONMENT?: string;
-  FRONTEND_URL?: string;
 }
 
 // ─── App singleton ────────────────────────────────────────────────────────────
@@ -26,22 +23,11 @@ export default {
       process.env.DATABASE_URL = env.HYPERDRIVE.connectionString;
       process.env.DATABASE_CONNECTION_SOURCE = 'hyperdrive';
     }
-    if (env?.SUPABASE_URL) {
-      // If the URL changed (shouldn't happen in prod, but resets in dev),
-      // reset the Supabase singleton so it picks up the new value.
-      if (process.env.SUPABASE_URL !== env.SUPABASE_URL) {
-        resetSupabaseClient();
-      }
-      process.env.SUPABASE_URL = env.SUPABASE_URL;
-    }
-    if (env?.SUPABASE_SERVICE_ROLE_KEY) {
-      process.env.SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+    if (env?.SECRET_KEY) {
+      process.env.SECRET_KEY = env.SECRET_KEY;
     }
     if (env?.ENVIRONMENT) {
       process.env.ENVIRONMENT = env.ENVIRONMENT;
-    }
-    if (env?.FRONTEND_URL) {
-      process.env.FRONTEND_URL = env.FRONTEND_URL;
     }
 
     return app.fetch(request, env, ctx);

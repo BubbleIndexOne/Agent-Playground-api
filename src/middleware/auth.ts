@@ -1,14 +1,13 @@
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
-import { getSupabaseClient } from '../services/supabase';
+import { verifyAccessToken } from '../services/jwt';
 import { AUTH_CONSTANTS } from '../constants';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface AuthUser {
   id: string;
-  email?: string;
-  [key: string]: any;
+  email: string;
 }
 
 // Extend Hono's context Variables type
@@ -18,11 +17,11 @@ declare module 'hono' {
   }
 }
 
-// ─── Supabase Bearer-token guard ──────────────────────────────────────────────
+// ─── JWT Bearer-token guard ───────────────────────────────────────────────────
 //
-// Extracts the Bearer token from Authorization header, calls
-// supabase.auth.getUser() to verify it, and stores the user on context.
-// Equivalent to the NestJS SupabaseAuthGuard.
+// Extracts the Bearer token from the Authorization header, verifies it locally
+// using the SECRET_KEY (HS256) — zero network calls. Stores the decoded user
+// on the Hono context for downstream handlers.
 
 export const requireAuth = createMiddleware(async (c, next) => {
   const authHeader = c.req.header('Authorization');
@@ -38,18 +37,12 @@ export const requireAuth = createMiddleware(async (c, next) => {
     });
   }
 
-  const { data, error } = await getSupabaseClient().auth.getUser(token);
-
-  if (error) {
-    console.error('[Auth] Supabase user lookup failed', error);
-    throw new HTTPException(401, {
-      message: 'Profile retrieval failed',
-    });
-  }
-  if (!data.user) {
+  try {
+    const payload = await verifyAccessToken(token);
+    c.set('user', { id: payload.sub, email: payload.email });
+  } catch {
     throw new HTTPException(401, { message: 'Invalid or expired access token' });
   }
 
-  c.set('user', data.user as AuthUser);
   await next();
 });

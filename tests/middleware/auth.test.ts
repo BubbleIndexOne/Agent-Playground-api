@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 
-const supabaseMocks = vi.hoisted(() => ({
-  getUser: vi.fn(),
-  getSupabaseClient: vi.fn(),
+// ─── Mock: jwt service ────────────────────────────────────────────────────────
+
+const jwtMocks = vi.hoisted(() => ({
+  verifyAccessToken: vi.fn(),
 }));
 
-vi.mock('../../src/services/supabase', () => ({
-  getSupabaseClient: supabaseMocks.getSupabaseClient,
+vi.mock('../../src/services/jwt', () => ({
+  verifyAccessToken: jwtMocks.verifyAccessToken,
 }));
 
 import { requireAuth } from '../../src/middleware/auth';
@@ -30,7 +31,8 @@ describe('requireAuth middleware', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    supabaseMocks.getSupabaseClient.mockReturnValue({ auth: { getUser: supabaseMocks.getUser } });
+    // Default: valid token resolves to a user payload
+    jwtMocks.verifyAccessToken.mockResolvedValue({ sub: 'user-1', email: 'agent@example.com' });
   });
 
   it('rejects requests without an Authorization header', async () => {
@@ -41,10 +43,10 @@ describe('requireAuth middleware', () => {
       statusCode: 401,
       message: 'Authorization header is missing',
     });
-    expect(supabaseMocks.getUser).not.toHaveBeenCalled();
+    expect(jwtMocks.verifyAccessToken).not.toHaveBeenCalled();
   });
 
-  it.each(['Basic token', 'bearer token', 'Bearer', 'Bearer  token']) (
+  it.each(['Basic token', 'bearer token', 'Bearer', 'Bearer  token'])(
     'rejects malformed authorization header %j',
     async (authorization) => {
       const response = await app.request('/protected', { headers: { Authorization: authorization } });
@@ -54,29 +56,14 @@ describe('requireAuth middleware', () => {
         statusCode: 401,
         message: 'Invalid authorization header format. Expected Bearer <token>',
       });
-      expect(supabaseMocks.getUser).not.toHaveBeenCalled();
+      expect(jwtMocks.verifyAccessToken).not.toHaveBeenCalled();
     },
   );
 
-  it('returns the provider error when token verification fails', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    supabaseMocks.getUser.mockResolvedValue({ data: { user: null }, error: { message: 'JWT expired' } });
+  it('returns 401 when token verification throws (e.g. expired or invalid signature)', async () => {
+    jwtMocks.verifyAccessToken.mockRejectedValue(new Error('JWTExpired: jwt expired'));
 
     const response = await app.request('/protected', { headers: { Authorization: 'Bearer expired' } });
-
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ statusCode: 401, message: 'Profile retrieval failed' });
-    expect(consoleError).toHaveBeenCalledWith(
-      '[Auth] Supabase user lookup failed',
-      { message: 'JWT expired' },
-    );
-    consoleError.mockRestore();
-  });
-
-  it('uses a stable fallback error when verification returns no user', async () => {
-    supabaseMocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
-
-    const response = await app.request('/protected', { headers: { Authorization: 'Bearer unknown' } });
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
@@ -85,14 +72,11 @@ describe('requireAuth middleware', () => {
     });
   });
 
-  it('stores the verified user in context and continues', async () => {
-    const user = { id: 'user-1', email: 'agent@example.com', role: 'member' };
-    supabaseMocks.getUser.mockResolvedValue({ data: { user }, error: null });
-
+  it('stores the verified user in context and continues to the handler', async () => {
     const response = await app.request('/protected', { headers: { Authorization: 'Bearer valid-token' } });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(user);
-    expect(supabaseMocks.getUser).toHaveBeenCalledWith('valid-token');
+    expect(await response.json()).toEqual({ id: 'user-1', email: 'agent@example.com' });
+    expect(jwtMocks.verifyAccessToken).toHaveBeenCalledWith('valid-token');
   });
 });
