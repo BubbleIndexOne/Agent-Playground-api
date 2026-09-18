@@ -1,3 +1,4 @@
+import type { ExecutionContext } from 'hono';
 import { createApp } from './app';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -6,6 +7,7 @@ interface CloudflareEnv {
   HYPERDRIVE?: { connectionString: string };
   SECRET_KEY?: string;
   ENVIRONMENT?: string;
+  ADMIN_SECRET_KEY?: string;
 }
 
 // ─── App singleton ────────────────────────────────────────────────────────────
@@ -28,6 +30,9 @@ export default {
     }
     if (env?.ENVIRONMENT) {
       process.env.ENVIRONMENT = env.ENVIRONMENT;
+    }
+    if (env?.ADMIN_SECRET_KEY) {
+      process.env.ADMIN_SECRET_KEY = env.ADMIN_SECRET_KEY;
     }
 
     return app.fetch(request, env, ctx);

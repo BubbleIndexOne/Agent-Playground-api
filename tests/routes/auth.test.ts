@@ -3,7 +3,6 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 
 // ─── Mock: database query ─────────────────────────────────────────────────────
-// We mock the `query` function directly so tests never touch a real DB.
 
 const dbMocks = vi.hoisted(() => ({
   query: vi.fn(),
@@ -14,7 +13,6 @@ vi.mock('../../src/services/database', () => ({
 }));
 
 // ─── Mock: JWT service ────────────────────────────────────────────────────────
-// Keep JWT signing/verification deterministic in unit tests.
 
 const jwtMocks = vi.hoisted(() => ({
   signAccessToken: vi.fn(),
@@ -46,16 +44,25 @@ import { authRouter } from '../../src/routes/auth';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function jsonRequest(path: string, body: unknown, headers: Record<string, string> = {}) {
+function jsonRequest(
+  path: string,
+  body: unknown,
+  method = 'POST',
+  headers: Record<string, string> = {},
+) {
   return new Request(`http://localhost${path}`, {
-    method: 'POST',
+    method,
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
 }
 
-function createAuthApp() {
-  const app = new Hono();
+function createAuthApp(env: Record<string, unknown> = {}) {
+  const app = new Hono<{ Bindings: Record<string, unknown> }>();
+  app.use('*', async (c, next) => {
+    c.env = Object.assign({}, c.env, env);
+    await next();
+  });
   app.route('/auth', authRouter);
   app.onError((error, c) => {
     if (error instanceof HTTPException) {
@@ -69,10 +76,12 @@ function createAuthApp() {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('authentication routes', () => {
-  const app = createAuthApp();
+  const defaultEnv = { ADMIN_SECRET_KEY: 'test-admin-key' };
+  const app = createAuthApp(defaultEnv);
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.ADMIN_SECRET_KEY = 'test-admin-key';
 
     // Default happy-path stubs
     bcryptMocks.hash.mockResolvedValue('hashed_password');
@@ -106,15 +115,17 @@ describe('authentication routes', () => {
         message: [
           'email must be a valid email address',
           'password must be at least 6 characters long',
+          'first_name is required',
         ],
       });
       expect(dbMocks.query).not.toHaveBeenCalled();
     });
 
-    it('creates the user and profile, returns 201 with success message', async () => {
+    it('creates the user and profile, defaulting display_name to first_name', async () => {
       const response = await app.request(jsonRequest('/auth/signup', {
         email: 'agent@example.com',
         password: 'secret1',
+        first_name: 'John',
       }));
 
       expect(response.status).toBe(201);
@@ -129,6 +140,31 @@ describe('authentication routes', () => {
 
       // Password was hashed before insert
       expect(bcryptMocks.hash).toHaveBeenCalledWith('secret1', 12);
+
+      // Second query inserts user + profile with display_name = 'John'
+      expect(dbMocks.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('INSERT INTO public.profiles'),
+        ['agent@example.com', 'hashed_password', 'John', null, null, 'John'],
+      );
+    });
+
+    it('creates the user with custom middle_name, last_name, and display_name', async () => {
+      const response = await app.request(jsonRequest('/auth/signup', {
+        email: 'agent@example.com',
+        password: 'secret1',
+        first_name: 'John',
+        middle_name: 'William',
+        last_name: 'Doe',
+        display_name: 'Johnny',
+      }));
+
+      expect(response.status).toBe(201);
+      expect(dbMocks.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('INSERT INTO public.profiles'),
+        ['agent@example.com', 'hashed_password', 'John', 'William', 'Doe', 'Johnny'],
+      );
     });
 
     it('returns 409 when the email is already registered', async () => {
@@ -138,6 +174,7 @@ describe('authentication routes', () => {
       const response = await app.request(jsonRequest('/auth/signup', {
         email: 'agent@example.com',
         password: 'secret1',
+        first_name: 'John',
       }));
 
       expect(response.status).toBe(409);
@@ -145,19 +182,19 @@ describe('authentication routes', () => {
         statusCode: 409,
         message: 'An account with this email already exists',
       });
-      // Only one query (the existence check) — no insert
       expect(dbMocks.query).toHaveBeenCalledTimes(1);
     });
 
     it('returns 500 when the insert returns no rows', async () => {
       dbMocks.query.mockReset();
       dbMocks.query
-        .mockResolvedValueOnce({ rows: [] })   // no existing user
-        .mockResolvedValueOnce({ rows: [] });  // insert returns nothing
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
 
       const response = await app.request(jsonRequest('/auth/signup', {
         email: 'agent@example.com',
         password: 'secret1',
+        first_name: 'John',
       }));
 
       expect(response.status).toBe(500);
@@ -176,8 +213,8 @@ describe('authentication routes', () => {
     beforeEach(() => {
       dbMocks.query.mockReset();
       dbMocks.query
-        .mockResolvedValueOnce({ rows: [loginUser] })   // SELECT user
-        .mockResolvedValueOnce({ rows: [] });            // INSERT refresh token
+        .mockResolvedValueOnce({ rows: [loginUser] })
+        .mockResolvedValueOnce({ rows: [] });
     });
 
     it('rejects an empty password without touching the DB', async () => {
@@ -249,10 +286,10 @@ describe('authentication routes', () => {
     beforeEach(() => {
       dbMocks.query.mockReset();
       dbMocks.query
-        .mockResolvedValueOnce({ rows: [tokenRow] })  // SELECT refresh token
-        .mockResolvedValueOnce({ rows: [userRow] })   // SELECT user
-        .mockResolvedValueOnce({ rows: [] })           // DELETE old token
-        .mockResolvedValueOnce({ rows: [] });          // INSERT new token
+        .mockResolvedValueOnce({ rows: [tokenRow] })
+        .mockResolvedValueOnce({ rows: [userRow] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
     });
 
     it('rejects an empty refresh token without touching the DB', async () => {
@@ -299,7 +336,7 @@ describe('authentication routes', () => {
       dbMocks.query.mockReset();
       dbMocks.query
         .mockResolvedValueOnce({ rows: [{ ...tokenRow, expires_at: pastDate }] })
-        .mockResolvedValueOnce({ rows: [] }); // DELETE
+        .mockResolvedValueOnce({ rows: [] });
 
       const response = await app.request(jsonRequest('/auth/refresh', {
         refreshToken: 'expired-token',
@@ -310,7 +347,6 @@ describe('authentication routes', () => {
         statusCode: 401,
         message: 'Invalid or expired refresh token',
       });
-      // Expired token should be cleaned up
       expect(dbMocks.query).toHaveBeenCalledTimes(2);
     });
   });
@@ -321,7 +357,10 @@ describe('authentication routes', () => {
     const profileData = {
       id: 'user-1',
       email: 'agent@example.com',
-      display_name: null,
+      first_name: 'John',
+      middle_name: null,
+      last_name: null,
+      display_name: 'John',
       created_at: '2026-09-14T12:00:00.000Z',
     };
 
@@ -336,7 +375,7 @@ describe('authentication routes', () => {
       dbMocks.query.mockResolvedValueOnce({ rows: [profileData] });
     });
 
-    it('returns the authenticated user profile', async () => {
+    it('returns the authenticated user profile with name fields', async () => {
       const response = await app.request(profileRequest());
 
       expect(response.status).toBe(200);
@@ -376,6 +415,172 @@ describe('authentication routes', () => {
       expect(await response.json()).toEqual({
         statusCode: 404,
         message: 'Profile for user user-1 not found',
+      });
+    });
+  });
+
+  // ── PATCH /auth/me ──────────────────────────────────────────────────────────
+
+  describe('PATCH /auth/me', () => {
+    const updatedProfile = {
+      id: 'user-1',
+      email: 'agent@example.com',
+      first_name: 'Jane',
+      middle_name: null,
+      last_name: 'Smith',
+      display_name: 'Jane Smith',
+      created_at: '2026-09-14T12:00:00.000Z',
+    };
+
+    it('updates profile name fields and returns updated profile', async () => {
+      dbMocks.query.mockReset();
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [] })                // UPDATE public.profiles
+        .mockResolvedValueOnce({ rows: [updatedProfile] }); // SELECT updated profile
+
+      const response = await app.request(
+        jsonRequest('/auth/me', { first_name: 'Jane', last_name: 'Smith' }, 'PATCH', {
+          Authorization: 'Bearer valid-token',
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(updatedProfile);
+      expect(dbMocks.query).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining('UPDATE public.profiles SET first_name = $1, last_name = $2 WHERE id = $3'),
+        ['Jane', 'Smith', 'user-1'],
+      );
+    });
+
+    it('updates password when valid current_password is provided', async () => {
+      dbMocks.query.mockReset();
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [{ password_hash: 'old_hashed' }] }) // SELECT user password_hash
+        .mockResolvedValueOnce({ rows: [] })                                // UPDATE public.users password_hash
+        .mockResolvedValueOnce({ rows: [updatedProfile] });                 // SELECT profile
+
+      const response = await app.request(
+        jsonRequest('/auth/me', { current_password: 'OldPassword123', new_password: 'NewPassword123' }, 'PATCH', {
+          Authorization: 'Bearer valid-token',
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(bcryptMocks.compare).toHaveBeenCalledWith('OldPassword123', 'old_hashed');
+      expect(bcryptMocks.hash).toHaveBeenCalledWith('NewPassword123', 12);
+    });
+
+    it('returns 401 when current_password does not match', async () => {
+      dbMocks.query.mockReset();
+      dbMocks.query.mockResolvedValueOnce({ rows: [{ password_hash: 'old_hashed' }] });
+      bcryptMocks.compare.mockResolvedValue(false);
+
+      const response = await app.request(
+        jsonRequest('/auth/me', { current_password: 'WrongPassword', new_password: 'NewPassword123' }, 'PATCH', {
+          Authorization: 'Bearer valid-token',
+        }),
+      );
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({
+        statusCode: 401,
+        message: 'Current password does not match',
+      });
+    });
+  });
+
+  // ── DELETE /auth/me (Self-deletion) ─────────────────────────────────────────
+
+  describe('DELETE /auth/me', () => {
+    it('deletes user account when password is confirmed', async () => {
+      dbMocks.query.mockReset();
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [{ password_hash: 'hashed_password' }] }) // SELECT password_hash
+        .mockResolvedValueOnce({ rows: [] });                                    // DELETE from public.users
+
+      const response = await app.request(
+        jsonRequest('/auth/me', { password: 'CorrectPassword123' }, 'DELETE', {
+          Authorization: 'Bearer valid-token',
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ message: 'Account deleted successfully' });
+      expect(bcryptMocks.compare).toHaveBeenCalledWith('CorrectPassword123', 'hashed_password');
+      expect(dbMocks.query).toHaveBeenNthCalledWith(
+        2,
+        'DELETE FROM public.users WHERE id = $1',
+        ['user-1'],
+      );
+    });
+
+    it('returns 401 when password confirmation fails', async () => {
+      dbMocks.query.mockReset();
+      dbMocks.query.mockResolvedValueOnce({ rows: [{ password_hash: 'hashed_password' }] });
+      bcryptMocks.compare.mockResolvedValue(false);
+
+      const response = await app.request(
+        jsonRequest('/auth/me', { password: 'WrongPassword' }, 'DELETE', {
+          Authorization: 'Bearer valid-token',
+        }),
+      );
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({
+        statusCode: 401,
+        message: 'Invalid password',
+      });
+      expect(dbMocks.query).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── DELETE /auth/users/:id (Admin deletion) ─────────────────────────────────
+
+  describe('DELETE /auth/users/:id', () => {
+    it('deletes user account when valid x-admin-key header is supplied', async () => {
+      dbMocks.query.mockReset();
+      dbMocks.query.mockResolvedValueOnce({ rows: [{ id: 'target-user-id' }] });
+
+      const response = await app.request(new Request('http://localhost/auth/users/target-user-id', {
+        method: 'DELETE',
+        headers: { 'x-admin-key': 'test-admin-key' },
+      }));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ message: 'User account deleted successfully' });
+      expect(dbMocks.query).toHaveBeenCalledWith(
+        'DELETE FROM public.users WHERE id = $1 RETURNING id',
+        ['target-user-id'],
+      );
+    });
+
+    it('returns 403 when x-admin-key header is missing or incorrect', async () => {
+      const response = await app.request(new Request('http://localhost/auth/users/target-user-id', {
+        method: 'DELETE',
+        headers: { 'x-admin-key': 'wrong-admin-key' },
+      }));
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        statusCode: 403,
+        message: 'Forbidden: invalid or missing admin key',
+      });
+    });
+
+    it('returns 404 when target user is not found', async () => {
+      dbMocks.query.mockReset();
+      dbMocks.query.mockResolvedValueOnce({ rows: [] });
+
+      const response = await app.request(new Request('http://localhost/auth/users/unknown-user-id', {
+        method: 'DELETE',
+        headers: { 'x-admin-key': 'test-admin-key' },
+      }));
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        statusCode: 404,
+        message: 'User unknown-user-id not found',
       });
     });
   });

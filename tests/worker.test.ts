@@ -19,6 +19,7 @@ const ENV_KEYS = [
   'DATABASE_CONNECTION_SOURCE',
   'SECRET_KEY',
   'ENVIRONMENT',
+  'ADMIN_SECRET_KEY',
 ] as const;
 
 describe('Cloudflare Worker entry point', () => {
@@ -42,6 +43,7 @@ describe('Cloudflare Worker entry point', () => {
       HYPERDRIVE: { connectionString: 'postgres://hyperdrive/test' },
       SECRET_KEY: 'supersecret-key-for-test',
       ENVIRONMENT: 'preview',
+      ADMIN_SECRET_KEY: 'admin-key-test',
     };
     const ctx = { waitUntil: vi.fn() } as any;
 
@@ -52,6 +54,7 @@ describe('Cloudflare Worker entry point', () => {
     expect(process.env.DATABASE_CONNECTION_SOURCE).toBe('hyperdrive');
     expect(process.env.SECRET_KEY).toBe('supersecret-key-for-test');
     expect(process.env.ENVIRONMENT).toBe('preview');
+    expect(process.env.ADMIN_SECRET_KEY).toBe('admin-key-test');
     expect(workerMocks.appFetch).toHaveBeenCalledWith(request, env, ctx);
   });
 

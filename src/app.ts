@@ -25,14 +25,24 @@ const openApiSpec = {
         bearerFormat: 'JWT',
         description: 'Enter your JWT access token',
       },
+      adminKey: {
+        type: 'apiKey',
+        in: 'header',
+        name: 'x-admin-key',
+        description: 'Admin Secret Key for administrative endpoints',
+      },
     },
     schemas: {
       SignUp: {
         type: 'object',
-        required: ['email', 'password'],
+        required: ['email', 'password', 'first_name'],
         properties: {
           email: { type: 'string', format: 'email', example: 'agent.user@example.com' },
-          password: { type: 'string', minLength: 6, example: 'SecurePassword123!' },
+          password: { type: 'string', minLength: 8, example: 'SecurePassword123!' },
+          first_name: { type: 'string', example: 'John' },
+          middle_name: { type: 'string', nullable: true, example: 'William' },
+          last_name: { type: 'string', nullable: true, example: 'Doe' },
+          display_name: { type: 'string', nullable: true, example: 'Johnny' },
         },
       },
       SignUpResponse: {
@@ -74,9 +84,34 @@ const openApiSpec = {
           },
         },
       },
+      UpdateProfile: {
+        type: 'object',
+        properties: {
+          first_name: { type: 'string', example: 'John' },
+          middle_name: { type: 'string', nullable: true, example: 'William' },
+          last_name: { type: 'string', nullable: true, example: 'Doe' },
+          display_name: { type: 'string', nullable: true, example: 'Johnny' },
+          current_password: { type: 'string', example: 'CurrentPassword123!' },
+          new_password: { type: 'string', minLength: 8, example: 'NewPassword123!' },
+        },
+      },
+      DeleteAccount: {
+        type: 'object',
+        required: ['password'],
+        properties: {
+          password: { type: 'string', example: 'SecurePassword123!' },
+        },
+      },
+      MessageResponse: {
+        type: 'object',
+        required: ['message'],
+        properties: {
+          message: { type: 'string', example: 'Operation completed successfully' },
+        },
+      },
       UserProfileResponse: {
         type: 'object',
-        required: ['id'],
+        required: ['id', 'email', 'first_name'],
         properties: {
           id: {
             type: 'string',
@@ -88,10 +123,24 @@ const openApiSpec = {
             format: 'email',
             example: 'agent.user@example.com',
           },
+          first_name: {
+            type: 'string',
+            example: 'John',
+          },
+          middle_name: {
+            type: 'string',
+            nullable: true,
+            example: 'William',
+          },
+          last_name: {
+            type: 'string',
+            nullable: true,
+            example: 'Doe',
+          },
           display_name: {
             type: 'string',
             nullable: true,
-            example: 'Agent User',
+            example: 'Johnny',
           },
           created_at: {
             type: 'string',
@@ -165,7 +214,11 @@ const openApiSpec = {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
           },
           409: {
-            description: 'Email already registered',
+            description: 'Account with this email already exists',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          500: {
+            description: 'Internal server error',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
           },
         },
@@ -174,14 +227,14 @@ const openApiSpec = {
     '/auth/login': {
       post: {
         tags: ['auth'],
-        summary: 'Authenticate existing user',
+        summary: 'Authenticate and receive JWT tokens',
         requestBody: {
           required: true,
           content: { 'application/json': { schema: { $ref: '#/components/schemas/Login' } } },
         },
         responses: {
           200: {
-            description: 'Tokens returned',
+            description: 'Authentication tokens',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthTokensResponse' } } },
           },
           400: {
@@ -235,6 +288,90 @@ const openApiSpec = {
           },
           404: {
             description: 'Profile not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['auth'],
+        summary: 'Update current user profile and/or password',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateProfile' } } },
+        },
+        responses: {
+          200: {
+            description: 'Updated profile data',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/UserProfileResponse' } } },
+          },
+          400: {
+            description: 'Validation error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized or current password mismatch',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'User not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['auth'],
+        summary: 'Self-delete current user account',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/DeleteAccount' } } },
+        },
+        responses: {
+          200: {
+            description: 'Account deleted successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageResponse' } } },
+          },
+          400: {
+            description: 'Validation error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized or invalid password',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'User not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/auth/users/{id}': {
+      delete: {
+        tags: ['auth'],
+        summary: 'Admin delete user account by ID',
+        security: [{ adminKey: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'User ID to delete',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'User account deleted successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageResponse' } } },
+          },
+          403: {
+            description: 'Forbidden: invalid or missing admin key',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'User not found',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
           },
         },

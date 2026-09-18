@@ -43,6 +43,7 @@ describe('application factory', () => {
       '/auth/login',
       '/auth/refresh',
       '/auth/me',
+      '/auth/users/{id}',
       '/health',
       '/health/db',
     ]);
@@ -57,7 +58,7 @@ describe('application factory', () => {
         content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
       },
       409: {
-        description: 'Email already registered',
+        description: 'Account with this email already exists',
         content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
       },
     });

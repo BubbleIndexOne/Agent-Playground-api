@@ -5,7 +5,13 @@ import bcrypt from 'bcryptjs';
 import { query } from '../services/database';
 import { signAccessToken, generateRefreshToken } from '../services/jwt';
 import { requireAuth } from '../middleware/auth';
-import { SignUpSchema, LoginSchema, RefreshTokenSchema } from '../schemas/auth';
+import {
+  SignUpSchema,
+  LoginSchema,
+  RefreshTokenSchema,
+  UpdateProfileSchema,
+  DeleteAccountSchema,
+} from '../schemas/auth';
 import { AUTH_CONSTANTS, JWT_CONSTANTS } from '../constants';
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
@@ -21,7 +27,7 @@ authRouter.post(
     }
   }),
   async (c) => {
-    const { email, password } = c.req.valid('json');
+    const { email, password, first_name, middle_name, last_name, display_name } = c.req.valid('json');
 
     // Check if email is already taken
     const existing = await query<{ id: string }>(
@@ -35,6 +41,9 @@ authRouter.post(
     // Hash password
     const passwordHash = await bcrypt.hash(password, AUTH_CONSTANTS.BCRYPT_SALT_ROUNDS);
 
+    // Default display_name to first_name if not provided
+    const finalDisplayName = display_name || first_name;
+
     // Insert user and auto-create profile in one transaction
     const insertResult = await query<{ id: string; email: string }>(
       `WITH inserted_user AS (
@@ -42,10 +51,17 @@ authRouter.post(
          VALUES ($1, $2)
          RETURNING id, email
        )
-       INSERT INTO public.profiles (id, email)
-       SELECT id, email FROM inserted_user
+       INSERT INTO public.profiles (id, email, first_name, middle_name, last_name, display_name)
+       SELECT id, email, $3, $4, $5, $6 FROM inserted_user
        RETURNING (SELECT id FROM inserted_user), (SELECT email FROM inserted_user)`,
-      [email, passwordHash],
+      [
+        email,
+        passwordHash,
+        first_name,
+        middle_name ?? null,
+        last_name ?? null,
+        finalDisplayName,
+      ],
     );
 
     if (insertResult.rows.length === 0) {
@@ -161,10 +177,13 @@ authRouter.get('/me', requireAuth, async (c) => {
   const result = await query<{
     id: string;
     email: string;
+    first_name: string;
+    middle_name: string | null;
+    last_name: string | null;
     display_name: string | null;
     created_at: string;
   }>(
-    `SELECT p.id, p.email, p.display_name, p.created_at
+    `SELECT p.id, p.email, p.first_name, p.middle_name, p.last_name, p.display_name, p.created_at
      FROM public.profiles p
      WHERE p.id = $1`,
     [user.id],
@@ -175,4 +194,148 @@ authRouter.get('/me', requireAuth, async (c) => {
   }
 
   return c.json(result.rows[0]);
+});
+
+// PATCH /auth/me  (protected: update profile and/or password)
+authRouter.patch(
+  '/me',
+  requireAuth,
+  zValidator('json', UpdateProfileSchema, (result, c) => {
+    if (!result.success) {
+      return c.json({ statusCode: 400, message: result.error.errors.map(e => e.message) }, 400);
+    }
+  }),
+  async (c) => {
+    const user = c.get('user');
+    const data = c.req.valid('json');
+
+    // 1. If password update requested:
+    if (data.new_password) {
+      const userRecord = await query<{ password_hash: string }>(
+        'SELECT password_hash FROM public.users WHERE id = $1 LIMIT 1',
+        [user.id],
+      );
+      if (userRecord.rows.length === 0) {
+        throw new HTTPException(404, { message: `User ${user.id} not found` });
+      }
+
+      const match = await bcrypt.compare(data.current_password!, userRecord.rows[0].password_hash);
+      if (!match) {
+        throw new HTTPException(401, { message: 'Current password does not match' });
+      }
+
+      const newHash = await bcrypt.hash(data.new_password, AUTH_CONSTANTS.BCRYPT_SALT_ROUNDS);
+      await query('UPDATE public.users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
+    }
+
+    // 2. If profile fields updated:
+    const fieldsToUpdate: string[] = [];
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    if (data.first_name !== undefined) {
+      fieldsToUpdate.push(`first_name = $${paramIndex++}`);
+      values.push(data.first_name);
+    }
+    if (data.middle_name !== undefined) {
+      fieldsToUpdate.push(`middle_name = $${paramIndex++}`);
+      values.push(data.middle_name);
+    }
+    if (data.last_name !== undefined) {
+      fieldsToUpdate.push(`last_name = $${paramIndex++}`);
+      values.push(data.last_name);
+    }
+    if (data.display_name !== undefined) {
+      fieldsToUpdate.push(`display_name = $${paramIndex++}`);
+      values.push(data.display_name);
+    }
+
+    if (fieldsToUpdate.length > 0) {
+      values.push(user.id);
+      await query(
+        `UPDATE public.profiles SET ${fieldsToUpdate.join(', ')} WHERE id = $${paramIndex}`,
+        values,
+      );
+    }
+
+    // Return updated profile
+    const result = await query<{
+      id: string;
+      email: string;
+      first_name: string;
+      middle_name: string | null;
+      last_name: string | null;
+      display_name: string | null;
+      created_at: string;
+    }>(
+      `SELECT p.id, p.email, p.first_name, p.middle_name, p.last_name, p.display_name, p.created_at
+       FROM public.profiles p
+       WHERE p.id = $1`,
+      [user.id],
+    );
+
+    if (result.rows.length === 0) {
+      throw new HTTPException(404, { message: `Profile for user ${user.id} not found` });
+    }
+
+    return c.json(result.rows[0]);
+  },
+);
+
+// DELETE /auth/me  (protected: user self-deletion with password confirmation)
+authRouter.delete(
+  '/me',
+  requireAuth,
+  zValidator('json', DeleteAccountSchema, (result, c) => {
+    if (!result.success) {
+      return c.json({ statusCode: 400, message: result.error.errors.map(e => e.message) }, 400);
+    }
+  }),
+  async (c) => {
+    const user = c.get('user');
+    const { password } = c.req.valid('json');
+
+    const userRecord = await query<{ password_hash: string }>(
+      'SELECT password_hash FROM public.users WHERE id = $1 LIMIT 1',
+      [user.id],
+    );
+
+    if (userRecord.rows.length === 0) {
+      throw new HTTPException(404, { message: `User ${user.id} not found` });
+    }
+
+    const match = await bcrypt.compare(password, userRecord.rows[0].password_hash);
+    if (!match) {
+      throw new HTTPException(401, { message: 'Invalid password' });
+    }
+
+    // Cascade deletes profiles, refresh_tokens, agents, etc.
+    await query('DELETE FROM public.users WHERE id = $1', [user.id]);
+
+    return c.json({ message: 'Account deleted successfully' });
+  },
+);
+
+// DELETE /auth/users/:id  (admin deletion guarded by x-admin-key header)
+authRouter.delete('/users/:id', async (c) => {
+  const adminKey = c.req.header('x-admin-key');
+  const expectedAdminKey =
+    (c.env as { ADMIN_SECRET_KEY?: string } | undefined)?.ADMIN_SECRET_KEY ||
+    process.env.ADMIN_SECRET_KEY;
+
+  if (!expectedAdminKey || !adminKey || adminKey !== expectedAdminKey) {
+    throw new HTTPException(403, { message: 'Forbidden: invalid or missing admin key' });
+  }
+
+  const targetId = c.req.param('id');
+  const deleteResult = await query<{ id: string }>(
+    'DELETE FROM public.users WHERE id = $1 RETURNING id',
+    [targetId],
+  );
+
+  if (deleteResult.rows.length === 0) {
+    throw new HTTPException(404, { message: `User ${targetId} not found` });
+  }
+
+  return c.json({ message: 'User account deleted successfully' });
 });
