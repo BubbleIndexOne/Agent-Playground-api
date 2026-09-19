@@ -156,6 +156,7 @@ describe('migration runner', () => {
       ['CREATE TABLE second_table (id integer);'],
       ['INSERT INTO _migrations (name) VALUES ($1);', ['002_second.sql']],
       ['COMMIT'],
+      ["NOTIFY pgrst, 'reload schema';"],
     ]);
     expect(result.end).toHaveBeenCalledOnce();
   });

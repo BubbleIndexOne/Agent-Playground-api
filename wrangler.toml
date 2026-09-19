@@ -9,6 +9,9 @@ compatibility_flags = ["nodejs_compat"]
 [env.dev]
 name = "agent-playground-backend-dev"
 
+[env.dev.vars]
+ENVIRONMENT = "dev"
+
 # Hyperdrive binding — Supabase Dev database
 # For local development, set the untracked
 # WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE environment variable.
@@ -21,6 +24,9 @@ id = "a6387124dba5424dbe426cec2bf32716"
 # ----------------------------------------------------
 [env.production]
 name = "agent-playground-backend-prod"
+
+[env.production.vars]
+ENVIRONMENT = "production"
 
 # Hyperdrive binding — Supabase Production database
 [[env.production.hyperdrive]]

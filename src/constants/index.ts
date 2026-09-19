@@ -2,10 +2,18 @@
 
 export const AUTH_CONSTANTS = {
   PASSWORD_MIN_LENGTH: 6,
+  BCRYPT_SALT_ROUNDS: 12,
   PROFILES_TABLE: 'profiles',
   BEARER_AUTH_SCHEME_NAME: 'bearer',
   BEARER_AUTH_HEADER_PREFIX: 'Bearer ',
   TAG: 'auth',
+} as const;
+
+export const JWT_CONSTANTS = {
+  /** Access token lifetime expressed as a `jose` duration string. */
+  ACCESS_TOKEN_TTL: '15m',
+  /** Refresh token lifetime in milliseconds (7 days). */
+  REFRESH_TOKEN_TTL_MS: 7 * 24 * 60 * 60 * 1000,
 } as const;
 
 export const APP_CONSTANTS = {
@@ -35,15 +43,4 @@ export const HEALTH_CONSTANTS = {
   STATUS_OK: 'ok',
   STATUS_CONNECTED: 'connected',
   STATUS_UNAVAILABLE: 'unavailable',
-} as const;
-
-export const SUPABASE_CONSTANTS = {
-  FALLBACK_URL: 'https://placeholder.supabase.co',
-  FALLBACK_SERVICE_ROLE_KEY: 'placeholder-key',
-  CLIENT_CONFIG: {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  },
 } as const;
