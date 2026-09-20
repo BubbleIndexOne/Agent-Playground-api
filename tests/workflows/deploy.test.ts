@@ -45,10 +45,16 @@ describe('deployment workflow', () => {
   });
 
   it('blocks deployment on migration success and selects the matching deploy environment', () => {
-    const deploy = job('deploy');
+    const deploy = job('deploy', 'e2e-test');
     expect(deploy).toMatch(/needs: migrate/);
     expect(deploy).toContain(
       "environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'dev' }}",
     );
+  });
+
+  it('runs live E2E verification after deployment', () => {
+    const e2e = job('e2e-test');
+    expect(e2e).toMatch(/needs: deploy/);
+    expect(e2e).toContain('node scripts/test-endpoints.js');
   });
 });

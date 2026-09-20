@@ -55,3 +55,24 @@ jobs:
     secrets:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+  e2e-test:
+    name: Run Live E2E Verification
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run E2E Test Suite
+        run: node scripts/test-endpoints.js
+        env:
+          BASE_URL: ${{ github.ref == 'refs/heads/main' && 'https://agent-playground-backend-prod.bubbleindexone.workers.dev' || 'https://agent-playground-backend-dev.bubbleindexone-dev.workers.dev' }}
+          ADMIN_KEY: ${{ github.ref == 'refs/heads/main' && (secrets.PROD_ADMIN_SECRET_KEY || secrets.ADMIN_SECRET_KEY) || (secrets.DEV_ADMIN_SECRET_KEY || secrets.ADMIN_SECRET_KEY) }}
+          TEST_USER_EMAIL: ${{ github.ref == 'refs/heads/main' && (secrets.PROD_TEST_USER_EMAIL || secrets.TEST_USER_EMAIL) || (secrets.DEV_TEST_USER_EMAIL || secrets.TEST_USER_EMAIL) }}
+          TEST_USER_PASSWORD: ${{ github.ref == 'refs/heads/main' && (secrets.PROD_TEST_USER_PASSWORD || secrets.TEST_USER_PASSWORD) || (secrets.DEV_TEST_USER_PASSWORD || secrets.TEST_USER_PASSWORD) }}
