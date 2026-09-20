@@ -44,6 +44,11 @@ describe('application factory', () => {
       '/auth/refresh',
       '/auth/me',
       '/auth/users/{id}',
+      '/tools',
+      '/tools/{id}',
+      '/tools/{id}/versions',
+      '/tools/{id}/versions/{versionNumber}',
+      '/tools/{id}/diff',
       '/health',
       '/health/db',
     ]);
@@ -69,6 +74,12 @@ describe('application factory', () => {
     expect(spec.components.schemas).toHaveProperty('ErrorResponse');
     expect(spec.components.schemas).toHaveProperty('HealthResponse');
     expect(spec.components.schemas).toHaveProperty('DatabaseHealthResponse');
+    expect(spec.components.schemas).toHaveProperty('CreateTool');
+    expect(spec.components.schemas).toHaveProperty('UpdateTool');
+    expect(spec.components.schemas).toHaveProperty('CreateToolVersion');
+    expect(spec.components.schemas).toHaveProperty('ToolVersionResponse');
+    expect(spec.components.schemas).toHaveProperty('ToolResponse');
+    expect(spec.components.schemas).toHaveProperty('ToolDiffResponse');
 
     // Verify every endpoint response contains an application/json schema definition
     for (const [pathKey, pathItem] of Object.entries<any>(spec.paths)) {
