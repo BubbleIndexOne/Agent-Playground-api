@@ -182,4 +182,196 @@ describe('tools routes', () => {
       );
     });
   });
+
+  describe('POST /tools/:id/versions', () => {
+    const validVersionPayload = {
+      code: 'export default () => "executed";',
+      schema_json: { type: 'object', properties: {} },
+      capabilities_json: ['network'],
+    };
+
+    it('returns 404 if tool does not exist or is archived', async () => {
+      dbMocks.query.mockResolvedValueOnce({ rows: [] });
+
+      const response = await app.request(
+        jsonRequest('/tools/non-existent/versions', validVersionPayload, 'POST', authHeaders),
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        statusCode: 404,
+        message: 'Tool non-existent not found',
+      });
+    });
+
+    it('returns 403 if caller is not the tool owner', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'tool-1',
+            owner_id: 'different-user',
+            type: 'client',
+            status: 'draft',
+            is_archived: false,
+          },
+        ],
+      });
+
+      const response = await app.request(
+        jsonRequest('/tools/tool-1/versions', validVersionPayload, 'POST', authHeaders),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        statusCode: 403,
+        message: 'You do not have permission to modify this tool',
+      });
+    });
+
+    it('returns 400 when client tool is missing code', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'tool-1',
+            owner_id: 'user-123',
+            type: 'client',
+            status: 'draft',
+            is_archived: false,
+          },
+        ],
+      });
+
+      const response = await app.request(
+        jsonRequest(
+          '/tools/tool-1/versions',
+          { schema_json: { type: 'object' } },
+          'POST',
+          authHeaders,
+        ),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        statusCode: 400,
+        message: 'code is required for client tools',
+      });
+    });
+
+    it('returns 400 when mcp tool includes code', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'tool-2',
+            owner_id: 'user-123',
+            type: 'mcp',
+            status: 'draft',
+            is_archived: false,
+          },
+        ],
+      });
+
+      const response = await app.request(
+        jsonRequest(
+          '/tools/tool-2/versions',
+          { code: 'console.log()', schema_json: { type: 'object' } },
+          'POST',
+          authHeaders,
+        ),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        statusCode: 400,
+        message: 'code must not be provided for mcp tools',
+      });
+    });
+
+    it('creates client tool version atomically and computes code_hash', async () => {
+      const versionRow = {
+        id: 'ver-1',
+        tool_id: 'tool-1',
+        version_number: 1,
+        code: validVersionPayload.code,
+        schema_json: validVersionPayload.schema_json,
+        capabilities_json: validVersionPayload.capabilities_json,
+        code_hash: 'mock-hash',
+        test_results_json: null,
+        created_at: '2026-09-20T12:00:00.000Z',
+      };
+
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [versionRow] });
+
+      const response = await app.request(
+        jsonRequest('/tools/tool-1/versions', validVersionPayload, 'POST', authHeaders),
+      );
+
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual(versionRow);
+      expect(dbMocks.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('SELECT id, tool_id, version_number, code'),
+        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String)],
+      );
+    });
+
+    it('creates mcp tool version and resets status to testing holding state', async () => {
+      const mcpVersionPayload = {
+        schema_json: { type: 'object' },
+        capabilities_json: [],
+      };
+
+      const versionRow = {
+        id: 'ver-2',
+        tool_id: 'tool-2',
+        version_number: 1,
+        code: null,
+        schema_json: mcpVersionPayload.schema_json,
+        capabilities_json: [],
+        code_hash: null,
+        test_results_json: null,
+        created_at: '2026-09-20T12:00:00.000Z',
+      };
+
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-2',
+              owner_id: 'user-123',
+              type: 'mcp',
+              status: 'draft',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // UPDATE status = 'testing'
+        .mockResolvedValueOnce({ rows: [versionRow] }); // create_tool_version RPC
+
+      const response = await app.request(
+        jsonRequest('/tools/tool-2/versions', mcpVersionPayload, 'POST', authHeaders),
+      );
+
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual(versionRow);
+
+      // Verify MCP holding update
+      expect(dbMocks.query).toHaveBeenNthCalledWith(
+        2,
+        "UPDATE public.tools SET status = 'testing', updated_at = now() WHERE id = $1",
+        ['tool-2'],
+      );
+    });
+  });
 });
