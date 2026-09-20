@@ -11,15 +11,20 @@ const ADMIN_KEY =
   process.env.ADMIN_KEY ||
   process.env.ADMIN_SECRET_KEY ||
   process.env.DEV_ADMIN_SECRET_KEY ||
+  process.env.PROD_ADMIN_SECRET_KEY ||
   '';
 
 const DEV_CREDENTIALS = {
   email:
+    process.env.DEV_TEST_USER_EMAIL ||
+    process.env.PROD_TEST_USER_EMAIL ||
     process.env.TEST_USER_EMAIL ||
     process.env.DEV_EMAIL ||
     process.env.CI_TEST_EMAIL ||
     '',
   password:
+    process.env.DEV_TEST_USER_PASSWORD ||
+    process.env.PROD_TEST_USER_PASSWORD ||
     process.env.TEST_USER_PASSWORD ||
     process.env.DEV_PASSWORD ||
     process.env.CI_TEST_PASSWORD ||
