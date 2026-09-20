@@ -46,6 +46,37 @@ function checkIsAdmin(c: any): boolean {
   return Boolean(expectedAdminKey && adminKey && adminKey === expectedAdminKey);
 }
 
+async function verifyToolAccess(toolId: string, user: { id: string }, isAdmin: boolean) {
+  const result = await query<{
+    id: string;
+    owner_id: string;
+    is_public: boolean;
+    status: string;
+    is_archived: boolean;
+  }>(
+    'SELECT id, owner_id, is_public, status, is_archived FROM public.tools WHERE id = $1 LIMIT 1',
+    [toolId],
+  );
+
+  if (result.rows.length === 0) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  const tool = result.rows[0];
+  if (tool.is_archived && !isAdmin) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  const isOwner = tool.owner_id === user.id;
+  const isPublicVerified = tool.is_public && tool.status === 'verified';
+
+  if (!isOwner && !isAdmin && !isPublicVerified) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  return tool;
+}
+
 // ─── Tools Router ─────────────────────────────────────────────────────────────
 
 export const toolsRouter = new Hono();
@@ -155,6 +186,105 @@ toolsRouter.get('/', requireAuth, async (c) => {
 
   const result = await query(sql, params);
   return c.json(result.rows.map(formatToolRow));
+});
+
+// GET /tools/:id/diff — Comparative version diff
+toolsRouter.get('/:id/diff', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+  const isAdmin = checkIsAdmin(c);
+
+  await verifyToolAccess(toolId, user, isAdmin);
+
+  const fromVersion = parseInt(c.req.query('from') || '', 10);
+  const toVersion = parseInt(c.req.query('to') || '', 10);
+
+  if (isNaN(fromVersion) || isNaN(toVersion)) {
+    throw new HTTPException(400, {
+      message: 'Both "from" and "to" query parameters must be valid integer version numbers',
+    });
+  }
+
+  const result = await query(
+    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json, code_hash, created_at
+     FROM public.tool_versions
+     WHERE tool_id = $1 AND version_number IN ($2, $3)`,
+    [toolId, fromVersion, toVersion],
+  );
+
+  const fromRow = result.rows.find((r) => r.version_number === fromVersion);
+  const toRow = result.rows.find((r) => r.version_number === toVersion);
+
+  if (!fromRow || !toRow) {
+    throw new HTTPException(404, {
+      message: `One or both versions (${fromVersion}, ${toVersion}) could not be found for tool ${toolId}`,
+    });
+  }
+
+  const codeChanged = fromRow.code !== toRow.code;
+  const schemaChanged =
+    JSON.stringify(fromRow.schema_json) !== JSON.stringify(toRow.schema_json);
+
+  return c.json({
+    tool_id: toolId,
+    from: fromRow,
+    to: toRow,
+    diff: {
+      code_changed: codeChanged,
+      schema_changed: schemaChanged,
+    },
+  });
+});
+
+// GET /tools/:id/versions — Version history
+toolsRouter.get('/:id/versions', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+  const isAdmin = checkIsAdmin(c);
+
+  await verifyToolAccess(toolId, user, isAdmin);
+
+  const result = await query(
+    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json,
+            code_hash, test_results_json, created_at
+     FROM public.tool_versions
+     WHERE tool_id = $1
+     ORDER BY version_number DESC`,
+    [toolId],
+  );
+
+  return c.json(result.rows);
+});
+
+// GET /tools/:id/versions/:versionNumber — Specific version
+toolsRouter.get('/:id/versions/:versionNumber', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+  const versionNumber = parseInt(c.req.param('versionNumber'), 10);
+  const isAdmin = checkIsAdmin(c);
+
+  if (isNaN(versionNumber)) {
+    throw new HTTPException(400, { message: 'versionNumber must be a valid integer' });
+  }
+
+  await verifyToolAccess(toolId, user, isAdmin);
+
+  const result = await query(
+    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json,
+            code_hash, test_results_json, created_at
+     FROM public.tool_versions
+     WHERE tool_id = $1 AND version_number = $2
+     LIMIT 1`,
+    [toolId, versionNumber],
+  );
+
+  if (result.rows.length === 0) {
+    throw new HTTPException(404, {
+      message: `Version ${versionNumber} not found for tool ${toolId}`,
+    });
+  }
+
+  return c.json(result.rows[0]);
 });
 
 // GET /tools/:id — Get tool by ID with its current version

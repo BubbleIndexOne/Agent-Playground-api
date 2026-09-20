@@ -545,4 +545,99 @@ describe('tools routes', () => {
       expect(response.status).toBe(200);
     });
   });
+
+  describe('GET /tools/:id/versions', () => {
+    it('returns version history ordered by version number descending', async () => {
+      // 1. verifyToolAccess query
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ id: 'tool-1', owner_id: 'user-123', is_public: false, status: 'draft', is_archived: false }],
+      });
+      // 2. tool_versions query
+      const versions = [
+        { id: 'v-2', tool_id: 'tool-1', version_number: 2, code: 'v2' },
+        { id: 'v-1', tool_id: 'tool-1', version_number: 1, code: 'v1' },
+      ];
+      dbMocks.query.mockResolvedValueOnce({ rows: versions });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/versions', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(versions);
+    });
+  });
+
+  describe('GET /tools/:id/versions/:versionNumber', () => {
+    it('returns specific version payload', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ id: 'tool-1', owner_id: 'user-123', is_public: false, status: 'draft', is_archived: false }],
+      });
+      const version = { id: 'v-1', tool_id: 'tool-1', version_number: 1, code: 'v1' };
+      dbMocks.query.mockResolvedValueOnce({ rows: [version] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/versions/1', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(version);
+    });
+
+    it('returns 404 when version number is not found', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ id: 'tool-1', owner_id: 'user-123', is_public: false, status: 'draft', is_archived: false }],
+      });
+      dbMocks.query.mockResolvedValueOnce({ rows: [] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/versions/99', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        statusCode: 404,
+        message: 'Version 99 not found for tool tool-1',
+      });
+    });
+  });
+
+  describe('GET /tools/:id/diff', () => {
+    it('returns comparative diff payload between two versions', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ id: 'tool-1', owner_id: 'user-123', is_public: false, status: 'draft', is_archived: false }],
+      });
+      const v1 = { id: 'v-1', tool_id: 'tool-1', version_number: 1, code: 'code1', schema_json: { a: 1 } };
+      const v2 = { id: 'v-2', tool_id: 'tool-1', version_number: 2, code: 'code2', schema_json: { a: 1 } };
+      dbMocks.query.mockResolvedValueOnce({ rows: [v1, v2] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/diff?from=1&to=2', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json() as any;
+      expect(data.tool_id).toBe('tool-1');
+      expect(data.from.version_number).toBe(1);
+      expect(data.to.version_number).toBe(2);
+      expect(data.diff.code_changed).toBe(true);
+      expect(data.diff.schema_changed).toBe(false);
+    });
+
+    it('returns 400 when from or to parameters are missing/invalid', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ id: 'tool-1', owner_id: 'user-123', is_public: false, status: 'draft', is_archived: false }],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/diff?from=abc', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        statusCode: 400,
+        message: 'Both "from" and "to" query parameters must be valid integer version numbers',
+      });
+    });
+  });
 });
