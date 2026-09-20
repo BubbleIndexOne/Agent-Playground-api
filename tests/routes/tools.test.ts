@@ -374,4 +374,175 @@ describe('tools routes', () => {
       );
     });
   });
+
+  describe('GET /tools', () => {
+    const mockToolRow = {
+      id: 'tool-1',
+      owner_id: 'user-123',
+      name: 'My Tool',
+      description: 'Test description',
+      type: 'client',
+      status: 'verified',
+      is_public: false,
+      allow_client_execution: false,
+      connector_type: null,
+      current_version_id: 'ver-1',
+      is_archived: false,
+      created_at: '2026-09-20T12:00:00.000Z',
+      updated_at: '2026-09-20T12:00:00.000Z',
+      current_version_number: 1,
+      current_code: 'export default () => {}',
+      current_schema_json: { type: 'object' },
+      current_capabilities_json: [],
+      current_code_hash: 'hash-1',
+      current_test_results_json: null,
+      current_version_created_at: '2026-09-20T12:00:00.000Z',
+    };
+
+    it('returns caller owned tools excluding archived', async () => {
+      dbMocks.query.mockResolvedValueOnce({ rows: [mockToolRow] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json() as any[];
+      expect(data).toHaveLength(1);
+      expect(data[0].id).toBe('tool-1');
+      expect(data[0].current_version).toBeDefined();
+      expect(data[0].current_version.version_number).toBe(1);
+
+      expect(dbMocks.query).toHaveBeenCalledWith(
+        expect.stringContaining('t.is_archived = false AND t.owner_id = $1'),
+        ['user-123'],
+      );
+    });
+
+    it('supports include_public parameter', async () => {
+      dbMocks.query.mockResolvedValueOnce({ rows: [mockToolRow] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools?include_public=true', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(dbMocks.query).toHaveBeenCalledWith(
+        expect.stringContaining("(t.owner_id = $1 OR (t.is_public = true AND t.status = 'verified'))"),
+        ['user-123'],
+      );
+    });
+
+    it('allows admin with x-admin-key to include archived tools', async () => {
+      dbMocks.query.mockResolvedValueOnce({ rows: [] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools?include_archived=true', {
+          headers: { ...authHeaders, 'x-admin-key': 'test-admin-key' },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      // Non-admin filter `t.is_archived = false` is omitted for admin with include_archived=true
+      expect(dbMocks.query).toHaveBeenCalledWith(
+        expect.not.stringContaining('t.is_archived = false'),
+        ['user-123'],
+      );
+    });
+  });
+
+  describe('GET /tools/:id', () => {
+    const mockToolRow = {
+      id: 'tool-1',
+      owner_id: 'user-123',
+      name: 'My Tool',
+      description: 'Test',
+      type: 'client',
+      status: 'draft',
+      is_public: false,
+      allow_client_execution: false,
+      connector_type: null,
+      current_version_id: null,
+      is_archived: false,
+      created_at: '2026-09-20T12:00:00.000Z',
+      updated_at: '2026-09-20T12:00:00.000Z',
+      current_version_number: null,
+      current_code: null,
+      current_schema_json: null,
+      current_capabilities_json: null,
+      current_code_hash: null,
+      current_test_results_json: null,
+      current_version_created_at: null,
+    };
+
+    it('returns tool for owner', async () => {
+      dbMocks.query.mockResolvedValueOnce({ rows: [mockToolRow] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json() as any;
+      expect(data.id).toBe('tool-1');
+      expect(data.current_version).toBeNull();
+    });
+
+    it('returns 404 for archived tool when requested by regular user', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ ...mockToolRow, is_archived: true }],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        statusCode: 404,
+        message: 'Tool tool-1 not found',
+      });
+    });
+
+    it('returns archived tool when requested by admin with x-admin-key', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ ...mockToolRow, is_archived: true }],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', {
+          headers: { ...authHeaders, 'x-admin-key': 'test-admin-key' },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json() as any;
+      expect(data.id).toBe('tool-1');
+      expect(data.is_archived).toBe(true);
+    });
+
+    it('returns 404 when tool belongs to another user and is not public verified', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ ...mockToolRow, owner_id: 'other-user', is_public: false }],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns tool when tool belongs to another user but is public verified', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ ...mockToolRow, owner_id: 'other-user', is_public: true, status: 'verified' }],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', { headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+    });
+  });
 });

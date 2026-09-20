@@ -6,6 +6,46 @@ import { query } from '../services/database';
 import { computeCodeHash } from '../utils/crypto';
 import { CreateToolSchema, CreateToolVersionSchema } from '../schemas/tools';
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatToolRow(row: any) {
+  const {
+    current_version_number,
+    current_code,
+    current_schema_json,
+    current_capabilities_json,
+    current_code_hash,
+    current_test_results_json,
+    current_version_created_at,
+    ...toolFields
+  } = row;
+
+  return {
+    ...toolFields,
+    current_version: row.current_version_id
+      ? {
+          id: row.current_version_id,
+          tool_id: row.id,
+          version_number: current_version_number,
+          code: current_code,
+          schema_json: current_schema_json,
+          capabilities_json: current_capabilities_json,
+          code_hash: current_code_hash,
+          test_results_json: current_test_results_json,
+          created_at: current_version_created_at,
+        }
+      : null,
+  };
+}
+
+function checkIsAdmin(c: any): boolean {
+  const adminKey = c.req.header('x-admin-key');
+  const expectedAdminKey =
+    (c.env as { ADMIN_SECRET_KEY?: string } | undefined)?.ADMIN_SECRET_KEY ||
+    process.env.ADMIN_SECRET_KEY;
+  return Boolean(expectedAdminKey && adminKey && adminKey === expectedAdminKey);
+}
+
 // ─── Tools Router ─────────────────────────────────────────────────────────────
 
 export const toolsRouter = new Hono();
@@ -56,6 +96,112 @@ toolsRouter.post(
     return c.json(result.rows[0], 201);
   },
 );
+
+// GET /tools — List caller's tools (+ optionally verified public tools)
+toolsRouter.get('/', requireAuth, async (c) => {
+  const user = c.get('user');
+  const includePublic = c.req.query('include_public') === 'true';
+  const includeArchived = c.req.query('include_archived') === 'true';
+  const typeFilter = c.req.query('type');
+  const statusFilter = c.req.query('status');
+  const isAdmin = checkIsAdmin(c);
+
+  const conditions: string[] = [];
+  const params: any[] = [];
+  let paramIdx = 1;
+
+  // 1. Archival visibility: non-admins NEVER see archived tools
+  if (!isAdmin || !includeArchived) {
+    conditions.push('t.is_archived = false');
+  }
+
+  // 2. Ownership / public visibility
+  if (includePublic) {
+    conditions.push(
+      `(t.owner_id = $${paramIdx++} OR (t.is_public = true AND t.status = 'verified'))`,
+    );
+    params.push(user.id);
+  } else {
+    conditions.push(`t.owner_id = $${paramIdx++}`);
+    params.push(user.id);
+  }
+
+  // 3. Optional filters
+  if (typeFilter) {
+    conditions.push(`t.type = $${paramIdx++}`);
+    params.push(typeFilter);
+  }
+  if (statusFilter) {
+    conditions.push(`t.status = $${paramIdx++}`);
+    params.push(statusFilter);
+  }
+
+  const sql = `
+    SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+           t.is_public, t.allow_client_execution, t.connector_type,
+           t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+           tv.version_number as current_version_number,
+           tv.code as current_code,
+           tv.schema_json as current_schema_json,
+           tv.capabilities_json as current_capabilities_json,
+           tv.code_hash as current_code_hash,
+           tv.test_results_json as current_test_results_json,
+           tv.created_at as current_version_created_at
+    FROM public.tools t
+    LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY t.updated_at DESC
+  `;
+
+  const result = await query(sql, params);
+  return c.json(result.rows.map(formatToolRow));
+});
+
+// GET /tools/:id — Get tool by ID with its current version
+toolsRouter.get('/:id', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+  const isAdmin = checkIsAdmin(c);
+
+  const result = await query(
+    `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+            t.is_public, t.allow_client_execution, t.connector_type,
+            t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+            tv.version_number as current_version_number,
+            tv.code as current_code,
+            tv.schema_json as current_schema_json,
+            tv.capabilities_json as current_capabilities_json,
+            tv.code_hash as current_code_hash,
+            tv.test_results_json as current_test_results_json,
+            tv.created_at as current_version_created_at
+     FROM public.tools t
+     LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+     WHERE t.id = $1
+     LIMIT 1`,
+    [toolId],
+  );
+
+  if (result.rows.length === 0) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  const row = result.rows[0];
+
+  // Soft-deleted tools are completely invisible to regular users
+  if (row.is_archived && !isAdmin) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  // Access check: owner, admin, or verified public tool
+  const isOwner = row.owner_id === user.id;
+  const isPublicVerified = row.is_public && row.status === 'verified';
+
+  if (!isOwner && !isAdmin && !isPublicVerified) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  return c.json(formatToolRow(row));
+});
 
 // POST /tools/:id/versions — Create a new version atomically
 toolsRouter.post(
