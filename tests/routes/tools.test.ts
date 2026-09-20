@@ -640,4 +640,113 @@ describe('tools routes', () => {
       });
     });
   });
+
+  describe('PATCH /tools/:id', () => {
+    it('updates client tool metadata for owner', async () => {
+      const toolCheck = { id: 'tool-1', owner_id: 'user-123', type: 'client', status: 'draft', is_archived: false };
+      const updatedRow = { ...toolCheck, name: 'Renamed Tool', current_version_id: null };
+
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [toolCheck] }) // Check
+        .mockResolvedValueOnce({ rows: [] })          // UPDATE
+        .mockResolvedValueOnce({ rows: [updatedRow] }); // SELECT updated
+
+      const response = await app.request(
+        jsonRequest('/tools/tool-1', { name: 'Renamed Tool' }, 'PATCH', authHeaders),
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json() as any;
+      expect(data.name).toBe('Renamed Tool');
+    });
+
+    it('rejects regular user attempting to set MCP tool status to verified', async () => {
+      const toolCheck = { id: 'tool-2', owner_id: 'user-123', type: 'mcp', status: 'testing', is_archived: false };
+
+      dbMocks.query.mockResolvedValueOnce({ rows: [toolCheck] });
+
+      const response = await app.request(
+        jsonRequest('/tools/tool-2', { status: 'verified' }, 'PATCH', authHeaders),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        statusCode: 403,
+        message: 'MCP tools cannot be set to "verified" without administrator verification',
+      });
+    });
+
+    it('allows admin with x-admin-key to set MCP tool status to verified', async () => {
+      const toolCheck = { id: 'tool-2', owner_id: 'user-123', type: 'mcp', status: 'testing', is_archived: false };
+      const updatedRow = { ...toolCheck, status: 'verified', current_version_id: null };
+
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [toolCheck] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [updatedRow] });
+
+      const response = await app.request(
+        jsonRequest('/tools/tool-2', { status: 'verified' }, 'PATCH', {
+          ...authHeaders,
+          'x-admin-key': 'test-admin-key',
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json() as any;
+      expect(data.status).toBe('verified');
+    });
+  });
+
+  describe('DELETE /tools/:id', () => {
+    it('soft-deletes tool for owner', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [{ id: 'tool-1', owner_id: 'user-123', is_archived: false }] })
+        .mockResolvedValueOnce({ rows: [] }); // UPDATE
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', { method: 'DELETE', headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ message: 'Tool archived successfully' });
+      expect(dbMocks.query).toHaveBeenNthCalledWith(
+        2,
+        'UPDATE public.tools SET is_archived = true, updated_at = now() WHERE id = $1',
+        ['tool-1'],
+      );
+    });
+
+    it('soft-deletes tool for admin with x-admin-key even if not owner', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [{ id: 'tool-1', owner_id: 'different-user', is_archived: false }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', {
+          method: 'DELETE',
+          headers: { ...authHeaders, 'x-admin-key': 'test-admin-key' },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ message: 'Tool archived successfully' });
+    });
+
+    it('returns 403 when non-owner non-admin tries to delete tool', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ id: 'tool-1', owner_id: 'different-user', is_archived: false }],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1', { method: 'DELETE', headers: authHeaders }),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        statusCode: 403,
+        message: 'You do not have permission to delete this tool',
+      });
+    });
+  });
 });

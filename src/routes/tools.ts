@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { requireAuth } from '../middleware/auth';
 import { query } from '../services/database';
 import { computeCodeHash } from '../utils/crypto';
-import { CreateToolSchema, CreateToolVersionSchema } from '../schemas/tools';
+import { CreateToolSchema, CreateToolVersionSchema, UpdateToolSchema } from '../schemas/tools';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -410,3 +410,135 @@ toolsRouter.post(
     return c.json(rpcResult.rows[0], 201);
   },
 );
+
+// PATCH /tools/:id — Update metadata only
+toolsRouter.patch(
+  '/:id',
+  requireAuth,
+  zValidator('json', UpdateToolSchema, (result, c) => {
+    if (!result.success) {
+      return c.json({ statusCode: 400, message: result.error.errors.map((e) => e.message) }, 400);
+    }
+  }),
+  async (c) => {
+    const user = c.get('user');
+    const toolId = c.req.param('id');
+    const data = c.req.valid('json');
+    const isAdmin = checkIsAdmin(c);
+
+    // 1. Fetch tool and verify ownership
+    const toolCheck = await query<{
+      id: string;
+      owner_id: string;
+      type: string;
+      status: string;
+      is_archived: boolean;
+    }>(
+      'SELECT id, owner_id, type, status, is_archived FROM public.tools WHERE id = $1 LIMIT 1',
+      [toolId],
+    );
+
+    if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
+      throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+    }
+
+    const tool = toolCheck.rows[0];
+    if (tool.owner_id !== user.id && !isAdmin) {
+      throw new HTTPException(403, { message: 'You do not have permission to modify this tool' });
+    }
+
+    // 2. MCP holding security check: regular user cannot promote MCP tool to 'verified'
+    if (data.status === 'verified' && tool.type === 'mcp' && !isAdmin) {
+      throw new HTTPException(403, {
+        message: 'MCP tools cannot be set to "verified" without administrator verification',
+      });
+    }
+
+    // 3. Build dynamic UPDATE query
+    const fieldsToUpdate: string[] = [];
+    const values: any[] = [];
+    let paramIdx = 1;
+
+    if (data.name !== undefined) {
+      fieldsToUpdate.push(`name = $${paramIdx++}`);
+      values.push(data.name);
+    }
+    if (data.description !== undefined) {
+      fieldsToUpdate.push(`description = $${paramIdx++}`);
+      values.push(data.description);
+    }
+    if (data.is_public !== undefined) {
+      fieldsToUpdate.push(`is_public = $${paramIdx++}`);
+      values.push(data.is_public);
+    }
+    if (data.allow_client_execution !== undefined) {
+      fieldsToUpdate.push(`allow_client_execution = $${paramIdx++}`);
+      values.push(data.allow_client_execution);
+    }
+    if (data.status !== undefined) {
+      fieldsToUpdate.push(`status = $${paramIdx++}`);
+      values.push(data.status);
+    }
+
+    if (fieldsToUpdate.length > 0) {
+      fieldsToUpdate.push('updated_at = now()');
+      values.push(toolId);
+      await query(
+        `UPDATE public.tools SET ${fieldsToUpdate.join(', ')} WHERE id = $${paramIdx}`,
+        values,
+      );
+    }
+
+    // 4. Return updated tool with current version
+    const updatedResult = await query(
+      `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+              t.is_public, t.allow_client_execution, t.connector_type,
+              t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+              tv.version_number as current_version_number,
+              tv.code as current_code,
+              tv.schema_json as current_schema_json,
+              tv.capabilities_json as current_capabilities_json,
+              tv.code_hash as current_code_hash,
+              tv.test_results_json as current_test_results_json,
+              tv.created_at as current_version_created_at
+       FROM public.tools t
+       LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+       WHERE t.id = $1
+       LIMIT 1`,
+      [toolId],
+    );
+
+    return c.json(formatToolRow(updatedResult.rows[0]));
+  },
+);
+
+// DELETE /tools/:id — Soft-delete tool (owner or admin only)
+toolsRouter.delete('/:id', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+  const isAdmin = checkIsAdmin(c);
+
+  // 1. Fetch tool
+  const toolCheck = await query<{
+    id: string;
+    owner_id: string;
+    is_archived: boolean;
+  }>('SELECT id, owner_id, is_archived FROM public.tools WHERE id = $1 LIMIT 1', [toolId]);
+
+  if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  const tool = toolCheck.rows[0];
+  if (tool.owner_id !== user.id && !isAdmin) {
+    throw new HTTPException(403, { message: 'You do not have permission to delete this tool' });
+  }
+
+  // 2. Soft-delete by setting is_archived = true
+  await query('UPDATE public.tools SET is_archived = true, updated_at = now() WHERE id = $1', [
+    toolId,
+  ]);
+
+  return c.json({ message: 'Tool archived successfully' });
+});
+
