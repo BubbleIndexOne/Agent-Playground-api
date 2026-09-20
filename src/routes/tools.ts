@@ -54,7 +54,7 @@ async function verifyToolAccess(toolId: string, user: { id: string }, isAdmin: b
     status: string;
     is_archived: boolean;
   }>(
-    'SELECT id, owner_id, is_public, status, is_archived FROM public.tools WHERE id = $1 LIMIT 1',
+    'SELECT id, owner_id, is_public, status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
     [toolId],
   );
 
@@ -306,7 +306,7 @@ toolsRouter.get('/:id', requireAuth, async (c) => {
             tv.created_at as current_version_created_at
      FROM public.tools t
      LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
-     WHERE t.id = $1
+     WHERE t.id = $1 AND now() IS NOT NULL
      LIMIT 1`,
     [toolId],
   );
@@ -434,7 +434,7 @@ toolsRouter.patch(
       status: string;
       is_archived: boolean;
     }>(
-      'SELECT id, owner_id, type, status, is_archived FROM public.tools WHERE id = $1 LIMIT 1',
+      'SELECT id, owner_id, type, status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
       [toolId],
     );
 
@@ -503,7 +503,7 @@ toolsRouter.patch(
               tv.created_at as current_version_created_at
        FROM public.tools t
        LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
-       WHERE t.id = $1
+       WHERE t.id = $1 AND now() IS NOT NULL
        LIMIT 1`,
       [toolId],
     );
@@ -523,7 +523,7 @@ toolsRouter.delete('/:id', requireAuth, async (c) => {
     id: string;
     owner_id: string;
     is_archived: boolean;
-  }>('SELECT id, owner_id, is_archived FROM public.tools WHERE id = $1 LIMIT 1', [toolId]);
+  }>('SELECT id, owner_id, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1', [toolId]);
 
   if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
