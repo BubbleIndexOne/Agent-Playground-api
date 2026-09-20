@@ -512,11 +512,12 @@ toolsRouter.patch(
   },
 );
 
-// DELETE /tools/:id — Soft-delete tool (owner or admin only)
+// DELETE /tools/:id — Soft-delete tool (or hard purge if purge=true & admin)
 toolsRouter.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
   const isAdmin = checkIsAdmin(c);
+  const purge = c.req.query('purge') === 'true';
 
   // 1. Fetch tool
   const toolCheck = await query<{
@@ -525,7 +526,7 @@ toolsRouter.delete('/:id', requireAuth, async (c) => {
     is_archived: boolean;
   }>('SELECT id, owner_id, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1', [toolId]);
 
-  if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
+  if (toolCheck.rows.length === 0) {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
   }
 
@@ -534,7 +535,17 @@ toolsRouter.delete('/:id', requireAuth, async (c) => {
     throw new HTTPException(403, { message: 'You do not have permission to delete this tool' });
   }
 
-  // 2. Soft-delete by setting is_archived = true
+  if (tool.is_archived && !purge) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  // 2. Hard purge for admins when purge=true
+  if (purge && isAdmin) {
+    await query('DELETE FROM public.tools WHERE id = $1', [toolId]);
+    return c.json({ message: 'Tool permanently purged' });
+  }
+
+  // 3. Soft-delete by setting is_archived = true
   await query('UPDATE public.tools SET is_archived = true, updated_at = now() WHERE id = $1', [
     toolId,
   ]);

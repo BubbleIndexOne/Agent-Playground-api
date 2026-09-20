@@ -465,6 +465,33 @@ async function run() {
     logFail('RBAC Visibility (Admin)', err.message);
   }
 
+  // 21. Post-Test Cleanup Phase (Hard purge created test tools & restore profile)
+  try {
+    // Revert display_name to 'Agent'
+    await request('/auth/me', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ display_name: 'Agent' }),
+    });
+
+    // Hard purge created test tools
+    if (clientToolId) {
+      await request(`/tools/${clientToolId}?purge=true`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}`, 'x-admin-key': ADMIN_KEY },
+      });
+    }
+    if (mcpToolId) {
+      await request(`/tools/${mcpToolId}?purge=true`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}`, 'x-admin-key': ADMIN_KEY },
+      });
+    }
+    logPass('Post-Test Cleanup', 'Purged test tools and restored profile display_name');
+  } catch (err) {
+    console.warn('⚠️ [CLEANUP WARNING]', err.message);
+  }
+
   const passedCount = results.filter((r) => r.status === 'PASS').length;
   const failedCount = results.filter((r) => r.status === 'FAIL').length;
 
