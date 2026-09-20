@@ -5,10 +5,6 @@
 # Wrangler local dev vars (contains credentials — never commit)
 .dev.vars
 
-# Local test runner scripts with potential live environment credentials
-scripts/test-endpoints.js
-scripts/test-*.js
-
 # Dependencies
 /node_modules
 
