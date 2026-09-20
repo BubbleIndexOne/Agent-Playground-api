@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { swaggerUI } from '@hono/swagger-ui';
 import { authRouter } from './routes/auth';
 import { healthRouter } from './routes/health';
+import { toolsRouter } from './routes/tools';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -416,6 +417,7 @@ export function createApp() {
   // Routes
   app.route('/auth', authRouter);
   app.route('/health', healthRouter);
+  app.route('/tools', toolsRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));
