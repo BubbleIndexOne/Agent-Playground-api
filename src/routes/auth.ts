@@ -250,49 +250,35 @@ authRouter.patch(
       values.push(data.display_name);
     }
 
-    let updatedProfileRow;
     if (fieldsToUpdate.length > 0) {
       values.push(user.id);
-      const updateResult = await query<{
-        id: string;
-        email: string;
-        first_name: string;
-        middle_name: string | null;
-        last_name: string | null;
-        display_name: string | null;
-        created_at: string;
-      }>(
-        `UPDATE public.profiles SET ${fieldsToUpdate.join(', ')} WHERE id = $${paramIndex}
-         RETURNING id, email, first_name, middle_name, last_name, display_name, created_at`,
+      await query(
+        `UPDATE public.profiles SET ${fieldsToUpdate.join(', ')} WHERE id = $${paramIndex}`,
         values,
       );
-      updatedProfileRow = updateResult.rows[0];
     }
 
-    if (!updatedProfileRow) {
-      const result = await query<{
-        id: string;
-        email: string;
-        first_name: string;
-        middle_name: string | null;
-        last_name: string | null;
-        display_name: string | null;
-        created_at: string;
-      }>(
-        `/* bypass_cache:${Date.now()} */
-         SELECT p.id, p.email, p.first_name, p.middle_name, p.last_name, p.display_name, p.created_at
-         FROM public.profiles p
-         WHERE p.id = $1`,
-        [user.id],
-      );
+    // Return updated profile
+    const result = await query<{
+      id: string;
+      email: string;
+      first_name: string;
+      middle_name: string | null;
+      last_name: string | null;
+      display_name: string | null;
+      created_at: string;
+    }>(
+      `SELECT p.id, p.email, p.first_name, p.middle_name, p.last_name, p.display_name, p.created_at
+       FROM public.profiles p
+       WHERE p.id = $1`,
+      [user.id],
+    );
 
-      if (result.rows.length === 0) {
-        throw new HTTPException(404, { message: `Profile for user ${user.id} not found` });
-      }
-      updatedProfileRow = result.rows[0];
+    if (result.rows.length === 0) {
+      throw new HTTPException(404, { message: `Profile for user ${user.id} not found` });
     }
 
-    return c.json(updatedProfileRow);
+    return c.json(result.rows[0]);
   },
 );
 

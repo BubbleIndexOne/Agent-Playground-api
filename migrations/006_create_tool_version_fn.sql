@@ -18,27 +18,17 @@ alter table public.tools add constraint tools_status_check
 -- ────────────────────────────────────────────────────────────
 -- 2. Atomic create_tool_version function
 -- ────────────────────────────────────────────────────────────
-drop function if exists public.create_tool_version(uuid, text, jsonb, jsonb, text);
-
 create or replace function public.create_tool_version(
   p_tool_id uuid,
   p_code text,
   p_schema_json jsonb,
   p_capabilities_json jsonb default '[]'::jsonb,
-  p_code_hash text default null,
-  p_test_results_json jsonb default null
+  p_code_hash text default null
 ) returns setof public.tool_versions as $$
 declare
   v_next_version int;
   v_new_row public.tool_versions;
 begin
-  -- Lock parent tool row before calculating next version number
-  perform 1 from public.tools where id = p_tool_id for update;
-
-  if not found then
-    raise exception 'Tool % not found', p_tool_id;
-  end if;
-
   -- Concurrency-safe version numbering: compute next integer
   select coalesce(max(version_number), 0) + 1 into v_next_version
   from public.tool_versions
@@ -51,16 +41,14 @@ begin
     code,
     schema_json,
     capabilities_json,
-    code_hash,
-    test_results_json
+    code_hash
   ) values (
     p_tool_id,
     v_next_version,
     p_code,
     p_schema_json,
     coalesce(p_capabilities_json, '[]'::jsonb),
-    p_code_hash,
-    p_test_results_json
+    p_code_hash
   )
   returning * into v_new_row;
 
@@ -72,8 +60,8 @@ begin
 
   return next v_new_row;
 end;
-$$ language plpgsql security definer set search_path = pg_catalog, pg_temp;
+$$ language plpgsql security definer;
 
--- Revoke execute from public/anon/authenticated, grant execute only to service_role
-revoke execute on function public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb) from public, anon, authenticated;
-grant execute on function public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb) to service_role;
+-- Grant execution to service_role and backend roles
+grant execute on function public.create_tool_version(uuid, text, jsonb, jsonb, text)
+  to anon, authenticated, service_role;

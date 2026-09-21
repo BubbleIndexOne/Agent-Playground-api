@@ -322,40 +322,7 @@ describe('tools routes', () => {
       expect(dbMocks.query).toHaveBeenNthCalledWith(
         2,
         expect.stringContaining('SELECT id, tool_id, version_number, code'),
-        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String), null, null],
-      );
-    });
-
-    it('persists client-supplied test_results_json when provided', async () => {
-      const testResults = { passed: true, score: 100 };
-      const versionRow = {
-        id: 'ver-3',
-        tool_id: 'tool-1',
-        version_number: 2,
-        code: validVersionPayload.code,
-        schema_json: validVersionPayload.schema_json,
-        capabilities_json: validVersionPayload.capabilities_json,
-        code_hash: 'mock-hash',
-        test_results_json: testResults,
-        created_at: '2026-09-20T12:00:00.000Z',
-      };
-
-      dbMocks.query
-        .mockResolvedValueOnce({
-          rows: [{ id: 'tool-1', owner_id: 'user-123', type: 'client', status: 'draft', is_archived: false }],
-        })
-        .mockResolvedValueOnce({ rows: [versionRow] });
-
-      const response = await app.request(
-        jsonRequest('/tools/tool-1/versions', { ...validVersionPayload, test_results_json: testResults }, 'POST', authHeaders),
-      );
-
-      expect(response.status).toBe(201);
-      expect(await response.json()).toEqual(versionRow);
-      expect(dbMocks.query).toHaveBeenNthCalledWith(
-        2,
-        expect.stringContaining('SELECT id, tool_id, version_number, code'),
-        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String), JSON.stringify(testResults), null],
+        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String)],
       );
     });
 
@@ -389,7 +356,8 @@ describe('tools routes', () => {
             },
           ],
         })
-        .mockResolvedValueOnce({ rows: [versionRow] });
+        .mockResolvedValueOnce({ rows: [] }) // UPDATE status = 'testing'
+        .mockResolvedValueOnce({ rows: [versionRow] }); // create_tool_version RPC
 
       const response = await app.request(
         jsonRequest('/tools/tool-2/versions', mcpVersionPayload, 'POST', authHeaders),
@@ -398,11 +366,11 @@ describe('tools routes', () => {
       expect(response.status).toBe(201);
       expect(await response.json()).toEqual(versionRow);
 
-      // Verify MCP holding status 'testing' passed to RPC function
+      // Verify MCP holding update
       expect(dbMocks.query).toHaveBeenNthCalledWith(
         2,
-        expect.stringContaining('SELECT id, tool_id, version_number, code'),
-        ['tool-2', null, JSON.stringify(mcpVersionPayload.schema_json), JSON.stringify(mcpVersionPayload.capabilities_json), null, null, 'testing'],
+        "UPDATE public.tools SET status = 'testing', updated_at = now() WHERE id = $1",
+        ['tool-2'],
       );
     });
   });

@@ -140,6 +140,7 @@ async function run() {
 
   if (!accessToken) {
     console.error('\nCannot continue tests without valid accessToken. Aborting.');
+    printSummary();
     process.exit(1);
   }
 
@@ -475,6 +476,15 @@ async function run() {
     console.warn('⚠️ [CLEANUP WARNING]', err.message);
   }
 
+  printSummary();
+
+  const failedCount = results.filter((r) => r.status === 'FAIL').length;
+  if (failedCount > 0) {
+    process.exit(1);
+  }
+}
+
+function printSummary() {
   const passedCount = results.filter((r) => r.status === 'PASS').length;
   const failedCount = results.filter((r) => r.status === 'FAIL').length;
 
@@ -501,10 +511,6 @@ async function run() {
       `**Total Tests:** ${results.length} | **Passed:** ${passedCount} | **Failed:** ${failedCount}`,
     ];
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryLines.join('\n') + '\n');
-  }
-
-  if (failedCount > 0) {
-    process.exit(1);
   }
 }
 
