@@ -435,8 +435,7 @@ describe('authentication routes', () => {
     it('updates profile name fields and returns updated profile', async () => {
       dbMocks.query.mockReset();
       dbMocks.query
-        .mockResolvedValueOnce({ rows: [] })                // UPDATE public.profiles
-        .mockResolvedValueOnce({ rows: [updatedProfile] }); // SELECT updated profile
+        .mockResolvedValueOnce({ rows: [updatedProfile] }); // UPDATE ... RETURNING
 
       const response = await app.request(
         jsonRequest('/auth/me', { first_name: 'Jane', last_name: 'Smith' }, 'PATCH', {
