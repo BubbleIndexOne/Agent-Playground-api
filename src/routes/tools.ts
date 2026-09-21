@@ -383,41 +383,21 @@ toolsRouter.post(
     }
 
     // 4. Invoke atomic PostgreSQL RPC to create version (and reset status to 'testing' for MCP tools)
-    let rpcResult;
-    if (tool.type === 'mcp') {
-      rpcResult = await query(
-        `WITH updated_status AS (
-           UPDATE public.tools
-           SET status = 'testing', updated_at = now()
-           WHERE id = $1
-         )
-         SELECT id, tool_id, version_number, code, schema_json, capabilities_json,
-                code_hash, test_results_json, created_at
-         FROM public.create_tool_version($1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb)`,
-        [
-          toolId,
-          code ?? null,
-          JSON.stringify(schema_json),
-          JSON.stringify(capabilities_json ?? []),
-          codeHash,
-          test_results_json ? JSON.stringify(test_results_json) : null,
-        ],
-      );
-    } else {
-      rpcResult = await query(
-        `SELECT id, tool_id, version_number, code, schema_json, capabilities_json,
-                code_hash, test_results_json, created_at
-         FROM public.create_tool_version($1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb)`,
-        [
-          toolId,
-          code ?? null,
-          JSON.stringify(schema_json),
-          JSON.stringify(capabilities_json ?? []),
-          codeHash,
-          test_results_json ? JSON.stringify(test_results_json) : null,
-        ],
-      );
-    }
+    const targetStatus = tool.type === 'mcp' ? 'testing' : null;
+    const rpcResult = await query(
+      `SELECT id, tool_id, version_number, code, schema_json, capabilities_json,
+              code_hash, test_results_json, created_at
+       FROM public.create_tool_version($1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb, $7)`,
+      [
+        toolId,
+        code ?? null,
+        JSON.stringify(schema_json),
+        JSON.stringify(capabilities_json ?? []),
+        codeHash,
+        test_results_json ? JSON.stringify(test_results_json) : null,
+        targetStatus,
+      ],
+    );
 
     if (rpcResult.rows.length === 0) {
       throw new HTTPException(500, { message: 'Failed to create tool version' });

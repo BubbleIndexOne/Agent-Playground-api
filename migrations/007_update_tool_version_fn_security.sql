@@ -9,6 +9,7 @@
 
 drop function if exists public.create_tool_version(uuid, text, jsonb, jsonb, text);
 drop function if exists public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb);
+drop function if exists public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb, text);
 
 create or replace function public.create_tool_version(
   p_tool_id uuid,
@@ -16,7 +17,8 @@ create or replace function public.create_tool_version(
   p_schema_json jsonb,
   p_capabilities_json jsonb default '[]'::jsonb,
   p_code_hash text default null,
-  p_test_results_json jsonb default null
+  p_test_results_json jsonb default null,
+  p_status text default null
 ) returns setof public.tool_versions as $$
 declare
   v_next_version int;
@@ -54,9 +56,10 @@ begin
   )
   returning * into v_new_row;
 
-  -- Atomically update tool shell's current_version_id
+  -- Atomically update tool shell's current_version_id (and status if provided)
   update public.tools
   set current_version_id = v_new_row.id,
+      status = coalesce(p_status, status),
       updated_at = now()
   where id = p_tool_id;
 
@@ -64,6 +67,6 @@ begin
 end;
 $$ language plpgsql security definer set search_path = pg_catalog, pg_temp;
 
--- Revoke execute from public/anon/authenticated, grant execute only to service_role
-revoke execute on function public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb) from public, anon, authenticated;
-grant execute on function public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb) to service_role;
+-- Revoke execute from public/anon/authenticated, grant execute to service_role and postgres
+revoke execute on function public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb, text) from public, anon, authenticated;
+grant execute on function public.create_tool_version(uuid, text, jsonb, jsonb, text, jsonb, text) to service_role, postgres;

@@ -322,7 +322,7 @@ describe('tools routes', () => {
       expect(dbMocks.query).toHaveBeenNthCalledWith(
         2,
         expect.stringContaining('SELECT id, tool_id, version_number, code'),
-        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String), null],
+        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String), null, null],
       );
     });
 
@@ -355,7 +355,7 @@ describe('tools routes', () => {
       expect(dbMocks.query).toHaveBeenNthCalledWith(
         2,
         expect.stringContaining('SELECT id, tool_id, version_number, code'),
-        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String), JSON.stringify(testResults)],
+        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String), JSON.stringify(testResults), null],
       );
     });
 
@@ -389,7 +389,7 @@ describe('tools routes', () => {
             },
           ],
         })
-        .mockResolvedValueOnce({ rows: [versionRow] }); // Atomic CTE status update & create_tool_version RPC
+        .mockResolvedValueOnce({ rows: [versionRow] });
 
       const response = await app.request(
         jsonRequest('/tools/tool-2/versions', mcpVersionPayload, 'POST', authHeaders),
@@ -398,11 +398,11 @@ describe('tools routes', () => {
       expect(response.status).toBe(201);
       expect(await response.json()).toEqual(versionRow);
 
-      // Verify MCP holding update in atomic CTE query
+      // Verify MCP holding status 'testing' passed to RPC function
       expect(dbMocks.query).toHaveBeenNthCalledWith(
         2,
-        expect.stringContaining("WITH updated_status AS"),
-        ['tool-2', null, JSON.stringify(mcpVersionPayload.schema_json), JSON.stringify(mcpVersionPayload.capabilities_json), null, null],
+        expect.stringContaining('SELECT id, tool_id, version_number, code'),
+        ['tool-2', null, JSON.stringify(mcpVersionPayload.schema_json), JSON.stringify(mcpVersionPayload.capabilities_json), null, null, 'testing'],
       );
     });
   });
