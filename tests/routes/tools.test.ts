@@ -10,6 +10,11 @@ const dbMocks = vi.hoisted(() => ({
 
 vi.mock('../../src/services/database', () => ({
   query: dbMocks.query,
+  // withTransaction passes a fake client so the existing mockResolvedValueOnce
+  // chains in each test continue to work without modification.
+  withTransaction: vi.fn((cb: (client: { query: typeof dbMocks.query }) => Promise<unknown>) =>
+    cb({ query: dbMocks.query }),
+  ),
 }));
 
 // ─── Mock: JWT service ────────────────────────────────────────────────────────
@@ -322,7 +327,7 @@ describe('tools routes', () => {
       expect(dbMocks.query).toHaveBeenNthCalledWith(
         2,
         expect.stringContaining('SELECT id, tool_id, version_number, code'),
-        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String)],
+        ['tool-1', validVersionPayload.code, JSON.stringify(validVersionPayload.schema_json), JSON.stringify(validVersionPayload.capabilities_json), expect.any(String), null],
       );
     });
 
