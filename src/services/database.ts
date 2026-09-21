@@ -43,6 +43,52 @@ export async function query<T extends QueryResultRow = any>(
   }
 }
 
+/**
+ * Executes a callback within an explicit BEGIN / COMMIT transaction on a
+ * single pg.Client. Automatically rolls back on error and always closes the
+ * connection.
+ *
+ * Usage:
+ *   const result = await withTransaction(async (client) => {
+ *     await client.query('UPDATE …', […]);
+ *     return client.query('SELECT …', […]);
+ *   });
+ */
+export async function withTransaction<T>(
+  callback: (client: InstanceType<typeof Client>) => Promise<T>,
+): Promise<T> {
+  const connectionString = process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error(
+      'DATABASE_URL is not configured. Set it in .dev.vars (local) or via Hyperdrive binding (Worker).',
+    );
+  }
+
+  const usesHyperdrive = process.env.DATABASE_CONNECTION_SOURCE === 'hyperdrive';
+  const client = new Client({
+    connectionString,
+    ...(usesHyperdrive ? {} : { ssl: { rejectUnauthorized: true } }),
+    connectionTimeoutMillis: DATABASE_CONSTANTS.DEFAULT_CONNECTION_TIMEOUT_MS,
+    query_timeout: DATABASE_CONSTANTS.DEFAULT_QUERY_TIMEOUT_MS,
+    statement_timeout: DATABASE_CONSTANTS.DEFAULT_STATEMENT_TIMEOUT_MS,
+  });
+
+  await client.connect();
+
+  try {
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    await client.end();
+  }
+}
+
 /** Query the database for its current timestamp. */
 export async function getCurrentTime(): Promise<string> {
   const result = await query<{ current_time: string }>(

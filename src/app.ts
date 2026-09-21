@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { swaggerUI } from '@hono/swagger-ui';
 import { authRouter } from './routes/auth';
 import { healthRouter } from './routes/health';
+import { toolsRouter } from './routes/tools';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -193,6 +194,136 @@ const openApiSpec = {
           },
         },
       },
+      CreateTool: {
+        type: 'object',
+        required: ['name', 'type'],
+        properties: {
+          name: { type: 'string', example: 'Web Scraper' },
+          description: { type: 'string', nullable: true, example: 'Extracts data from HTML pages' },
+          type: { type: 'string', enum: ['client', 'mcp'], example: 'client' },
+          connector_type: { type: 'string', nullable: true, example: null },
+          is_public: { type: 'boolean', default: false, example: false },
+          allow_client_execution: { type: 'boolean', default: false, example: false },
+        },
+      },
+      UpdateTool: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', example: 'Enhanced Web Scraper' },
+          description: { type: 'string', nullable: true, example: 'Fast distributed web scraper' },
+          is_public: { type: 'boolean', example: true },
+          allow_client_execution: { type: 'boolean', example: true },
+          status: {
+            type: 'string',
+            enum: ['draft', 'testing', 'verified', 'registered', 'rejected', 'deprecated'],
+            example: 'verified',
+          },
+        },
+      },
+      CreateToolVersion: {
+        type: 'object',
+        required: ['schema_json'],
+        properties: {
+          code: {
+            type: 'string',
+            nullable: true,
+            example: 'export default async function run(params) { return { content: "result" }; }',
+          },
+          schema_json: {
+            type: 'object',
+            example: {
+              type: 'object',
+              properties: { url: { type: 'string', description: 'Target URL' } },
+              required: ['url'],
+            },
+          },
+          capabilities_json: {
+            type: 'array',
+            items: { type: 'string' },
+            example: ['network:http_get'],
+          },
+          test_results_json: {
+            type: 'object',
+            nullable: true,
+            example: { passed: true, duration_ms: 42 },
+          },
+        },
+      },
+      ToolVersionResponse: {
+        type: 'object',
+        required: ['id', 'tool_id', 'version_number', 'schema_json', 'created_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid', example: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d' },
+          tool_id: { type: 'string', format: 'uuid', example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' },
+          version_number: { type: 'integer', example: 1 },
+          code: { type: 'string', nullable: true, example: 'export default async function run() {}' },
+          schema_json: {
+            type: 'object',
+            example: { type: 'object', properties: { url: { type: 'string' } } },
+          },
+          capabilities_json: {
+            type: 'array',
+            items: { type: 'string' },
+            example: ['network:http_get'],
+          },
+          code_hash: {
+            type: 'string',
+            nullable: true,
+            example: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          },
+          test_results_json: { type: 'object', nullable: true, example: { passed: true } },
+          created_at: { type: 'string', format: 'date-time', example: '2026-09-20T12:00:00.000Z' },
+        },
+      },
+      ToolResponse: {
+        type: 'object',
+        required: ['id', 'owner_id', 'name', 'type', 'status', 'is_public', 'created_at', 'updated_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid', example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' },
+          owner_id: { type: 'string', format: 'uuid', example: 'c1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22' },
+          name: { type: 'string', example: 'Web Scraper' },
+          description: { type: 'string', nullable: true, example: 'Extracts data from HTML pages' },
+          type: { type: 'string', enum: ['client', 'mcp'], example: 'client' },
+          status: {
+            type: 'string',
+            enum: ['draft', 'testing', 'verified', 'registered', 'rejected', 'deprecated'],
+            example: 'draft',
+          },
+          is_public: { type: 'boolean', example: false },
+          allow_client_execution: { type: 'boolean', example: false },
+          connector_type: { type: 'string', nullable: true, example: null },
+          current_version_id: {
+            type: 'string',
+            format: 'uuid',
+            nullable: true,
+            example: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d',
+          },
+          is_archived: { type: 'boolean', example: false },
+          created_at: { type: 'string', format: 'date-time', example: '2026-09-20T12:00:00.000Z' },
+          updated_at: { type: 'string', format: 'date-time', example: '2026-09-20T12:00:00.000Z' },
+          current_version: {
+            $ref: '#/components/schemas/ToolVersionResponse',
+            nullable: true,
+          },
+        },
+      },
+      ToolDiffResponse: {
+        type: 'object',
+        required: ['tool_id', 'from', 'to', 'diff'],
+        properties: {
+          tool_id: { type: 'string', format: 'uuid', example: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11' },
+          from: { $ref: '#/components/schemas/ToolVersionResponse' },
+          to: { $ref: '#/components/schemas/ToolVersionResponse' },
+          diff: {
+            type: 'object',
+            required: ['code_changed', 'schema_changed'],
+            properties: {
+              code_changed: { type: 'boolean', example: true },
+              schema_changed: { type: 'boolean', example: false },
+            },
+          },
+        },
+      },
     },
   },
   paths: {
@@ -377,6 +508,349 @@ const openApiSpec = {
         },
       },
     },
+    '/tools': {
+      post: {
+        tags: ['tools'],
+        summary: 'Create a new tool shell in draft status',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateTool' } } },
+        },
+        responses: {
+          201: {
+            description: 'Tool shell created successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolResponse' } } },
+          },
+          400: {
+            description: 'Validation error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          500: {
+            description: 'Internal server error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      get: {
+        tags: ['tools'],
+        summary: 'List tools owned by caller, optionally including verified public tools',
+        security: [{ bearer: [] }, { adminKey: [] }],
+        parameters: [
+          {
+            name: 'include_public',
+            in: 'query',
+            schema: { type: 'boolean' },
+            description: 'Include verified public tools',
+          },
+          {
+            name: 'include_archived',
+            in: 'query',
+            schema: { type: 'boolean' },
+            description: 'Admin only: include archived tools',
+          },
+          {
+            name: 'type',
+            in: 'query',
+            schema: { type: 'string', enum: ['client', 'mcp'] },
+            description: 'Filter by tool type',
+          },
+          {
+            name: 'status',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Filter by lifecycle status',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'List of tools',
+            content: {
+              'application/json': {
+                schema: { type: 'array', items: { $ref: '#/components/schemas/ToolResponse' } },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/tools/{id}': {
+      get: {
+        tags: ['tools'],
+        summary: 'Get tool by ID with current version details',
+        security: [{ bearer: [] }, { adminKey: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Tool details',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found or archived',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['tools'],
+        summary: 'Update tool metadata',
+        security: [{ bearer: [] }, { adminKey: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateTool' } } },
+        },
+        responses: {
+          200: {
+            description: 'Updated tool details',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolResponse' } } },
+          },
+          400: {
+            description: 'Validation error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Forbidden: caller is not the owner or MCP verified transition requires admin',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['tools'],
+        summary: 'Soft-delete a tool (sets is_archived = true)',
+        security: [{ bearer: [] }, { adminKey: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Tool archived successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Forbidden: only owner or admin can delete tool',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/tools/{id}/versions': {
+      post: {
+        tags: ['tools'],
+        summary: 'Create a new version for a tool atomically',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateToolVersion' } } },
+        },
+        responses: {
+          201: {
+            description: 'Tool version created successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolVersionResponse' } } },
+          },
+          400: {
+            description: 'Validation error (e.g. missing code for client tool or code present for mcp)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Forbidden: caller is not the owner',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          500: {
+            description: 'Internal server error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      get: {
+        tags: ['tools'],
+        summary: 'List all historical versions of a tool ordered descending',
+        security: [{ bearer: [] }, { adminKey: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'List of tool versions',
+            content: {
+              'application/json': {
+                schema: { type: 'array', items: { $ref: '#/components/schemas/ToolVersionResponse' } },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/tools/{id}/versions/{versionNumber}': {
+      get: {
+        tags: ['tools'],
+        summary: 'Get full details of a specific tool version',
+        security: [{ bearer: [] }, { adminKey: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID',
+          },
+          {
+            name: 'versionNumber',
+            in: 'path',
+            required: true,
+            schema: { type: 'integer' },
+            description: 'Version number',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Tool version details',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolVersionResponse' } } },
+          },
+          400: {
+            description: 'Invalid version number parameter',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool or version not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/tools/{id}/diff': {
+      get: {
+        tags: ['tools'],
+        summary: 'Compare two historical tool versions for visual diffing',
+        security: [{ bearer: [] }, { adminKey: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID',
+          },
+          {
+            name: 'from',
+            in: 'query',
+            required: true,
+            schema: { type: 'integer' },
+            description: 'Base version number',
+          },
+          {
+            name: 'to',
+            in: 'query',
+            required: true,
+            schema: { type: 'integer' },
+            description: 'Target version number',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Comparative version diff payload',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolDiffResponse' } } },
+          },
+          400: {
+            description: 'Invalid query parameters',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool or version not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
     '/health': {
       get: {
         tags: ['health'],
@@ -416,6 +890,7 @@ export function createApp() {
   // Routes
   app.route('/auth', authRouter);
   app.route('/health', healthRouter);
+  app.route('/tools', toolsRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));
