@@ -252,13 +252,28 @@ authRouter.patch(
 
     if (fieldsToUpdate.length > 0) {
       values.push(user.id);
-      await query(
-        `UPDATE public.profiles SET ${fieldsToUpdate.join(', ')} WHERE id = $${paramIndex}`,
+      const updateResult = await query<{
+        id: string;
+        email: string;
+        first_name: string;
+        middle_name: string | null;
+        last_name: string | null;
+        display_name: string | null;
+        created_at: string;
+      }>(
+        `UPDATE public.profiles SET ${fieldsToUpdate.join(', ')} WHERE id = $${paramIndex}
+         RETURNING id, email, first_name, middle_name, last_name, display_name, created_at`,
         values,
       );
+
+      if (updateResult.rows.length === 0) {
+        throw new HTTPException(404, { message: `Profile for user ${user.id} not found` });
+      }
+
+      return c.json(updateResult.rows[0]);
     }
 
-    // Return updated profile
+    // No profile fields changed — just return the current profile
     const result = await query<{
       id: string;
       email: string;
