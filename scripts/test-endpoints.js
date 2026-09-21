@@ -18,6 +18,10 @@ let accessToken = '';
 let refreshToken = '';
 let clientToolId = '';
 let mcpToolId = '';
+let originalDisplayName = '';
+
+// Unique display_name for this run — proves the PATCH actually writes a new value
+const TEST_DISPLAY_NAME = `Agent-${Math.random().toString(36).slice(2, 8)}`;
 
 const results = [];
 
@@ -144,12 +148,13 @@ async function run() {
     process.exit(1);
   }
 
-  // 4. Auth: GET /auth/me
+  // 4. Auth: GET /auth/me (also captures current display_name for cleanup)
   try {
     const meRes = await request('/auth/me', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (meRes.status === 200 && meRes.body.email === DEV_CREDENTIALS.email) {
+      originalDisplayName = meRes.body.display_name || meRes.body.first_name || 'Agent';
       logPass('GET /auth/me', `User: ${meRes.body.email} (${meRes.body.first_name})`);
     } else {
       logFail('GET /auth/me', JSON.stringify(meRes.body));
@@ -159,18 +164,21 @@ async function run() {
   }
 
   // 5. Auth: PATCH /auth/me
+  // Uses a unique per-run name so the assertion can only pass if the UPDATE
+  // actually persisted (i.e. the return value is different from whatever was there before).
   try {
     const patchMeRes = await request('/auth/me', {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({
-        display_name: 'Agent Supreme',
-      }),
+      body: JSON.stringify({ display_name: TEST_DISPLAY_NAME }),
     });
-    if (patchMeRes.status === 200 && patchMeRes.body.display_name === 'Agent Supreme') {
-      logPass('PATCH /auth/me', `Updated display_name: ${patchMeRes.body.display_name}`);
+    if (patchMeRes.status === 200 && patchMeRes.body.display_name === TEST_DISPLAY_NAME) {
+      logPass('PATCH /auth/me', `display_name updated to: ${patchMeRes.body.display_name}`);
     } else {
-      logFail('PATCH /auth/me', JSON.stringify(patchMeRes.body));
+      logFail(
+        'PATCH /auth/me',
+        `Expected display_name "${TEST_DISPLAY_NAME}", got: ${JSON.stringify(patchMeRes.body)}`,
+      );
     }
   } catch (err) {
     logFail('PATCH /auth/me', err.message);
@@ -451,11 +459,11 @@ async function run() {
 
   // 21. Post-Test Cleanup Phase (Hard purge created test tools & restore profile)
   try {
-    // Revert display_name to 'Agent'
+    // Restore display_name to what it was before the test run
     await request('/auth/me', {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ display_name: 'Agent' }),
+      body: JSON.stringify({ display_name: originalDisplayName }),
     });
 
     // Hard purge created test tools
