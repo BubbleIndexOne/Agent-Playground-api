@@ -67,9 +67,9 @@ async function run() {
   if (!DEV_CREDENTIALS.email || !DEV_CREDENTIALS.password || !ADMIN_KEY) {
     console.error(`❌ [ERROR] Missing required test credentials environment variables.`);
     console.error(`Please provide:`);
-    console.error(`  - TEST_USER_EMAIL (or DEV_EMAIL)`);
-    console.error(`  - TEST_USER_PASSWORD (or DEV_PASSWORD)`);
-    console.error(`  - ADMIN_KEY (or ADMIN_SECRET_KEY)\n`);
+    console.error(`  - TEST_USER_EMAIL`);
+    console.error(`  - TEST_USER_PASSWORD`);
+    console.error(`  - ADMIN_KEY\n`);
     process.exit(1);
   }
 
