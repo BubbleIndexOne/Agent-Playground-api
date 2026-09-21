@@ -7,28 +7,11 @@ const BASE_URL =
   process.env.BASE_URL ||
   'https://agent-playground-backend-dev.bubbleindexone-dev.workers.dev';
 
-const ADMIN_KEY =
-  process.env.ADMIN_KEY ||
-  process.env.ADMIN_SECRET_KEY ||
-  process.env.DEV_ADMIN_SECRET_KEY ||
-  process.env.PROD_ADMIN_SECRET_KEY ||
-  '';
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
 
 const DEV_CREDENTIALS = {
-  email:
-    process.env.DEV_TEST_USER_EMAIL ||
-    process.env.PROD_TEST_USER_EMAIL ||
-    process.env.TEST_USER_EMAIL ||
-    process.env.DEV_EMAIL ||
-    process.env.CI_TEST_EMAIL ||
-    '',
-  password:
-    process.env.DEV_TEST_USER_PASSWORD ||
-    process.env.PROD_TEST_USER_PASSWORD ||
-    process.env.TEST_USER_PASSWORD ||
-    process.env.DEV_PASSWORD ||
-    process.env.CI_TEST_PASSWORD ||
-    '',
+  email: process.env.TEST_USER_EMAIL || '',
+  password: process.env.TEST_USER_PASSWORD || '',
 };
 
 let accessToken = '';
@@ -157,7 +140,7 @@ async function run() {
 
   if (!accessToken) {
     console.error('\nCannot continue tests without valid accessToken. Aborting.');
-    return;
+    process.exit(1);
   }
 
   // 4. Auth: GET /auth/me
