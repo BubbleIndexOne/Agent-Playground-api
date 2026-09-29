@@ -7,6 +7,10 @@ const BASE_URL =
   process.env.BASE_URL ||
   'https://agent-playground-backend-dev.bubbleindexone-dev.workers.dev';
 
+const TARGET_ENV =
+  process.env.ENVIRONMENT ||
+  (BASE_URL.includes('prod') ? 'production' : 'dev');
+
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 
 const DEV_CREDENTIALS = {
@@ -64,8 +68,7 @@ async function request(path, options = {}, retries = 2) {
 
 async function run() {
   console.log(`\n======================================================`);
-  console.log(`Starting Live Endpoint Verification on:`);
-  console.log(`${BASE_URL}`);
+  console.log(`Starting Live Endpoint Verification on [${TARGET_ENV}]`);
   console.log(`======================================================\n`);
 
   if (!DEV_CREDENTIALS.email || !DEV_CREDENTIALS.password || !ADMIN_KEY) {
@@ -504,7 +507,7 @@ function printSummary() {
     const fs = require('fs');
     const summaryLines = [
       `### 🧪 Live End-to-End Endpoint Test Results`,
-      `**Target Environment:** \`${BASE_URL}\``,
+      `**Target Environment:** \`${TARGET_ENV}\``,
       ``,
       `| Status | Test Endpoint / Feature | Details / Notes |`,
       `| :---: | :--- | :--- |`,
