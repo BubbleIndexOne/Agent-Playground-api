@@ -3,13 +3,11 @@
  * Tests all Auth and Tools endpoints against the deployed Dev environment.
  */
 
-const BASE_URL =
-  process.env.BASE_URL ||
-  'https://agent-playground-backend-dev.bubbleindexone-dev.workers.dev';
+const BASE_URL = process.env.BASE_URL || '';
 
 const TARGET_ENV =
   process.env.ENVIRONMENT ||
-  (BASE_URL.includes('prod') ? 'production' : 'dev');
+  (BASE_URL.includes('prod') ? 'production' : BASE_URL.includes('dev') ? 'dev' : 'unknown');
 
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 
@@ -71,9 +69,10 @@ async function run() {
   console.log(`Starting Live Endpoint Verification on [${TARGET_ENV}]`);
   console.log(`======================================================\n`);
 
-  if (!DEV_CREDENTIALS.email || !DEV_CREDENTIALS.password || !ADMIN_KEY) {
-    console.error(`❌ [ERROR] Missing required test credentials environment variables.`);
+  if (!BASE_URL || !DEV_CREDENTIALS.email || !DEV_CREDENTIALS.password || !ADMIN_KEY) {
+    console.error(`❌ [ERROR] Missing required test configuration environment variables.`);
     console.error(`Please provide:`);
+    console.error(`  - BASE_URL`);
     console.error(`  - TEST_USER_EMAIL`);
     console.error(`  - TEST_USER_PASSWORD`);
     console.error(`  - ADMIN_KEY\n`);
