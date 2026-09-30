@@ -46,10 +46,17 @@ describe('deployment workflow', () => {
 
   it('blocks deployment on migration success and selects the matching deploy environment', () => {
     const deploy = job('deploy', 'e2e-test');
-    expect(deploy).toMatch(/needs: migrate/);
+    expect(deploy).toMatch(/needs:.*migrate/);
+    expect(deploy).toMatch(/needs:.*deploy-sandbox/);
     expect(deploy).toContain(
       "environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'dev' }}",
     );
+  });
+
+  it('deploys the sandbox worker after tests pass and before main backend deploy', () => {
+    const sandbox = job('deploy-sandbox', 'deploy');
+    expect(sandbox).toMatch(/needs: test/);
+    expect(sandbox).toContain('run: npx wrangler deploy --config sandbox-worker/wrangler.toml');
   });
 
   it('runs live E2E verification after deployment', () => {
