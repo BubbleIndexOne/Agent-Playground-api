@@ -12,7 +12,13 @@ export default {
       }>();
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      let timeoutId: any;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          reject(new Error('Execution timed out after 5000ms'));
+        }, 5000);
+      });
 
       const observedCalls: string[] = [];
       const scopedHttpGet = async (url: string) => {
@@ -26,11 +32,14 @@ export default {
 
       try {
         const fn = new Function('args', 'httpGet', `return (async () => { ${code} })()`);
-        const result = await fn(args, scopedHttpGet);
-        clearTimeout(timeout);
+        const result = await Promise.race([
+          fn(args, scopedHttpGet),
+          timeoutPromise,
+        ]);
+        clearTimeout(timeoutId);
         return Response.json({ success: true, result, observedCalls });
       } catch (err: any) {
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
         return Response.json({ success: false, error: err.message, observedCalls });
       }
     } catch (err: any) {
