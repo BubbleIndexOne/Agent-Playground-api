@@ -15,7 +15,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
@@ -31,7 +31,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
@@ -46,9 +46,33 @@ jobs:
           DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
 
+  deploy-sandbox:
+    name: Deploy Sandbox Worker
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Deploy Sandbox Worker
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            npx wrangler deploy --config sandbox-worker/wrangler.toml --env production
+          else
+            npx wrangler deploy --config sandbox-worker/wrangler.toml --env dev
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
   deploy:
     name: Deploy to Cloudflare
-    needs: migrate
+    needs: [migrate, deploy-sandbox]
     uses: BubbleIndexOne/Build-Pipeline/.github/workflows/deploy.yml@main
     with:
       environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'dev' }}
@@ -65,14 +89,32 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
       - name: Run E2E Test Suite
-        run: node scripts/test-endpoints.js
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            export ENVIRONMENT="production"
+            export BASE_URL="$PROD_URL"
+            export ADMIN_KEY="$PROD_KEY"
+            export TEST_USER_EMAIL="$PROD_EMAIL"
+            export TEST_USER_PASSWORD="$PROD_PWD"
+          else
+            export ENVIRONMENT="dev"
+            export BASE_URL="$DEV_URL"
+            export ADMIN_KEY="$DEV_KEY"
+            export TEST_USER_EMAIL="$DEV_EMAIL"
+            export TEST_USER_PASSWORD="$DEV_PWD"
+          fi
+          node scripts/test-endpoints.js
         env:
-          BASE_URL: ${{ github.ref == 'refs/heads/main' && 'https://agent-playground-backend-prod.bubbleindexone-dev.workers.dev' || 'https://agent-playground-backend-dev.bubbleindexone-dev.workers.dev' }}
-          ADMIN_KEY: ${{ github.ref == 'refs/heads/main' && secrets.PROD_ADMIN_SECRET_KEY || secrets.DEV_ADMIN_SECRET_KEY }}
-          TEST_USER_EMAIL: ${{ github.ref == 'refs/heads/main' && secrets.PROD_TEST_USER_EMAIL || secrets.DEV_TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ github.ref == 'refs/heads/main' && secrets.PROD_TEST_USER_PASSWORD || secrets.DEV_TEST_USER_PASSWORD }}
+          PROD_URL: ${{ secrets.PROD_BACKEND_URL }}
+          PROD_KEY: ${{ secrets.PROD_ADMIN_SECRET_KEY }}
+          PROD_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
+          PROD_PWD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
+          DEV_URL: ${{ secrets.DEV_BACKEND_URL }}
+          DEV_KEY: ${{ secrets.DEV_ADMIN_SECRET_KEY }}
+          DEV_EMAIL: ${{ secrets.DEV_TEST_USER_EMAIL }}
+          DEV_PWD: ${{ secrets.DEV_TEST_USER_PASSWORD }}

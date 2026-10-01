@@ -5,6 +5,8 @@ import { requireAuth } from '../middleware/auth';
 import { query, withTransaction } from '../services/database';
 import { computeCodeHash } from '../utils/crypto';
 import { CreateToolSchema, CreateToolVersionSchema, UpdateToolSchema } from '../schemas/tools';
+import { validateSchemaConsistency } from '../utils/schemaValidation';
+import { generateTestInputs } from '../utils/testInputGenerator';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -425,6 +427,144 @@ toolsRouter.post(
   },
 );
 
+// POST /tools/:id/register — Automate tool verification and status transition
+toolsRouter.post('/:id/register', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+  const env = c.env as any;
+
+  // 1. Fetch tool and latest version, verify ownership and state
+  const toolCheck = await query<{
+    id: string;
+    owner_id: string;
+    type: string;
+    status: string;
+    is_archived: boolean;
+    current_version_id: string;
+  }>(
+    'SELECT id, owner_id, type, status, is_archived, current_version_id FROM public.tools WHERE id = $1 LIMIT 1',
+    [toolId]
+  );
+
+  if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  const tool = toolCheck.rows[0];
+  if (tool.owner_id !== user.id) {
+    throw new HTTPException(403, { message: 'You do not have permission to register this tool' });
+  }
+
+  // Ensure it's in a state that can be registered
+  if (!['draft', 'rejected', 'testing'].includes(tool.status)) {
+    throw new HTTPException(400, { message: `Tool is in ${tool.status} state and cannot be registered again` });
+  }
+
+  if (tool.type !== 'client') {
+    throw new HTTPException(400, { message: 'Only client tools require sandbox registration' });
+  }
+
+  const versionCheck = await query<{
+    id: string;
+    code: string;
+    schema_json: any;
+    capabilities_json: any;
+  }>(
+    'SELECT id, code, schema_json, capabilities_json FROM public.tool_versions WHERE id = $1 LIMIT 1',
+    [tool.current_version_id]
+  );
+
+  if (versionCheck.rows.length === 0) {
+    throw new HTTPException(404, { message: 'Tool version not found' });
+  }
+
+  const version = versionCheck.rows[0];
+  const { code, schema_json, capabilities_json } = version;
+
+  if (!code || code.trim() === '') {
+    throw new HTTPException(400, { message: 'Cannot register a tool without code' });
+  }
+
+  // 2. Set to 'testing'
+  await query("UPDATE public.tools SET status = 'testing', updated_at = now() WHERE id = $1", [toolId]);
+
+  // Helper to fail registration
+  const rejectRegistration = async (reason: string, details?: any) => {
+    const testResults = { status: 'failed', reason, details, timestamp: new Date().toISOString() };
+    await query("UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2", [JSON.stringify(testResults), version.id]);
+    await query("UPDATE public.tools SET status = 'rejected', updated_at = now() WHERE id = $1", [toolId]);
+    return c.json({ success: false, message: 'Registration failed', testResults }, 400);
+  };
+
+  try {
+    // 3. Step One: Schema Validation
+    const schemaValidation = validateSchemaConsistency(code, schema_json);
+    if (!schemaValidation.valid) {
+      return await rejectRegistration(schemaValidation.error || 'Schema validation failed');
+    }
+
+    // 4. Step Two: Test Inputs Generation
+    let args = {};
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      args = body.inputs || generateTestInputs(schema_json);
+    } catch (e) {
+      args = generateTestInputs(schema_json);
+    }
+
+    // 5. Step Three: Sandboxed Execution & Capability Audit
+    const startTime = Date.now();
+    let sandboxResponse;
+    
+    if (!env.SANDBOX) {
+      return await rejectRegistration('Sandbox execution service not available');
+    }
+
+    try {
+      const reqBody = JSON.stringify({ code, args, capabilities: Array.isArray(capabilities_json) ? capabilities_json : [] });
+      const sandboxKey = env.SANDBOX_KEY || 'agent-playground-internal-sandbox-key';
+      const res = await env.SANDBOX.fetch(new Request('http://sandbox/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sandbox-key': sandboxKey,
+        },
+        body: reqBody,
+      }));
+      sandboxResponse = await res.json();
+    } catch (err: any) {
+      return await rejectRegistration('Sandbox execution request failed', { error: err.message });
+    }
+
+    const duration = Date.now() - startTime;
+
+    if (!sandboxResponse.success) {
+      return await rejectRegistration('Sandbox execution failed', {
+        error: sandboxResponse.error,
+        observedCalls: sandboxResponse.observedCalls,
+        durationMs: duration
+      });
+    }
+
+    // 6. Success! Transition to registered
+    const successResults = {
+      status: 'passed',
+      result: sandboxResponse.result,
+      observedCalls: sandboxResponse.observedCalls,
+      durationMs: duration,
+      inputsUsed: args,
+      timestamp: new Date().toISOString()
+    };
+
+    await query("UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2", [JSON.stringify(successResults), version.id]);
+    await query("UPDATE public.tools SET status = 'registered', updated_at = now() WHERE id = $1", [toolId]);
+
+    return c.json({ success: true, message: 'Tool successfully registered', testResults: successResults });
+  } catch (err: any) {
+    return await rejectRegistration('Internal error during registration', { error: err.message });
+  }
+});
+
 // PATCH /tools/:id — Update metadata only
 toolsRouter.patch(
   '/:id',
@@ -461,11 +601,18 @@ toolsRouter.patch(
       throw new HTTPException(403, { message: 'You do not have permission to modify this tool' });
     }
 
-    // 2. MCP holding security check: regular user cannot promote MCP tool to 'verified'
-    if (data.status === 'verified' && tool.type === 'mcp' && !isAdmin) {
-      throw new HTTPException(403, {
-        message: 'MCP tools cannot be set to "verified" without administrator verification',
-      });
+    // 2. Security checks for status changes
+    if (data.status && !isAdmin) {
+      if (data.status === 'verified' && tool.type === 'mcp') {
+        throw new HTTPException(403, {
+          message: 'MCP tools cannot be set to "verified" without administrator verification',
+        });
+      }
+      if (['testing', 'registered', 'rejected'].includes(data.status)) {
+        throw new HTTPException(403, {
+          message: 'Status cannot be manually set to testing, registered, or rejected. Please use the /register endpoint.',
+        });
+      }
     }
 
     // 3. Build dynamic UPDATE query
