@@ -496,65 +496,73 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
     return c.json({ success: false, message: 'Registration failed', testResults }, 400);
   };
 
-  // 3. Step One: Schema Validation
-  const schemaValidation = validateSchemaConsistency(code, schema_json);
-  if (!schemaValidation.valid) {
-    return rejectRegistration(schemaValidation.error || 'Schema validation failed');
-  }
-
-  // 4. Step Two: Test Inputs Generation
-  let args = {};
   try {
-    const body = await c.req.json().catch(() => ({}));
-    args = body.inputs || generateTestInputs(schema_json);
-  } catch (e) {
-    args = generateTestInputs(schema_json);
-  }
+    // 3. Step One: Schema Validation
+    const schemaValidation = validateSchemaConsistency(code, schema_json);
+    if (!schemaValidation.valid) {
+      return await rejectRegistration(schemaValidation.error || 'Schema validation failed');
+    }
 
-  // 5. Step Three: Sandboxed Execution & Capability Audit
-  const startTime = Date.now();
-  let sandboxResponse;
-  
-  if (!env.SANDBOX) {
-    return rejectRegistration('Sandbox execution service not available');
-  }
+    // 4. Step Two: Test Inputs Generation
+    let args = {};
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      args = body.inputs || generateTestInputs(schema_json);
+    } catch (e) {
+      args = generateTestInputs(schema_json);
+    }
 
-  try {
-    const reqBody = JSON.stringify({ code, args, capabilities: Array.isArray(capabilities_json) ? capabilities_json : [] });
-    const res = await env.SANDBOX.fetch(new Request('http://sandbox/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: reqBody,
-    }));
-    sandboxResponse = await res.json();
-  } catch (err: any) {
-    return rejectRegistration('Sandbox execution request failed', { error: err.message });
-  }
+    // 5. Step Three: Sandboxed Execution & Capability Audit
+    const startTime = Date.now();
+    let sandboxResponse;
+    
+    if (!env.SANDBOX) {
+      return await rejectRegistration('Sandbox execution service not available');
+    }
 
-  const duration = Date.now() - startTime;
+    try {
+      const reqBody = JSON.stringify({ code, args, capabilities: Array.isArray(capabilities_json) ? capabilities_json : [] });
+      const sandboxKey = env.SANDBOX_KEY || 'agent-playground-internal-sandbox-key';
+      const res = await env.SANDBOX.fetch(new Request('http://sandbox/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sandbox-key': sandboxKey,
+        },
+        body: reqBody,
+      }));
+      sandboxResponse = await res.json();
+    } catch (err: any) {
+      return await rejectRegistration('Sandbox execution request failed', { error: err.message });
+    }
 
-  if (!sandboxResponse.success) {
-    return rejectRegistration('Sandbox execution failed', {
-      error: sandboxResponse.error,
+    const duration = Date.now() - startTime;
+
+    if (!sandboxResponse.success) {
+      return await rejectRegistration('Sandbox execution failed', {
+        error: sandboxResponse.error,
+        observedCalls: sandboxResponse.observedCalls,
+        durationMs: duration
+      });
+    }
+
+    // 6. Success! Transition to registered
+    const successResults = {
+      status: 'passed',
+      result: sandboxResponse.result,
       observedCalls: sandboxResponse.observedCalls,
-      durationMs: duration
-    });
+      durationMs: duration,
+      inputsUsed: args,
+      timestamp: new Date().toISOString()
+    };
+
+    await query("UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2", [JSON.stringify(successResults), version.id]);
+    await query("UPDATE public.tools SET status = 'registered', updated_at = now() WHERE id = $1", [toolId]);
+
+    return c.json({ success: true, message: 'Tool successfully registered', testResults: successResults });
+  } catch (err: any) {
+    return await rejectRegistration('Internal error during registration', { error: err.message });
   }
-
-  // 6. Success! Transition to registered
-  const successResults = {
-    status: 'passed',
-    result: sandboxResponse.result,
-    observedCalls: sandboxResponse.observedCalls,
-    durationMs: duration,
-    inputsUsed: args,
-    timestamp: new Date().toISOString()
-  };
-
-  await query("UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2", [JSON.stringify(successResults), version.id]);
-  await query("UPDATE public.tools SET status = 'registered', updated_at = now() WHERE id = $1", [toolId]);
-
-  return c.json({ success: true, message: 'Tool successfully registered', testResults: successResults });
 });
 
 // PATCH /tools/:id — Update metadata only

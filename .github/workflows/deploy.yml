@@ -60,7 +60,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Deploy Sandbox Worker
-        run: npx wrangler deploy --config sandbox-worker/wrangler.toml
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            npx wrangler deploy --config sandbox-worker/wrangler.toml --env production
+          else
+            npx wrangler deploy --config sandbox-worker/wrangler.toml --env dev
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -89,10 +94,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run E2E Test Suite
-        run: node scripts/test-endpoints.js
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            export ENVIRONMENT="production"
+            export BASE_URL="$PROD_URL"
+            export ADMIN_KEY="$PROD_KEY"
+            export TEST_USER_EMAIL="$PROD_EMAIL"
+            export TEST_USER_PASSWORD="$PROD_PWD"
+          else
+            export ENVIRONMENT="dev"
+            export BASE_URL="$DEV_URL"
+            export ADMIN_KEY="$DEV_KEY"
+            export TEST_USER_EMAIL="$DEV_EMAIL"
+            export TEST_USER_PASSWORD="$DEV_PWD"
+          fi
+          node scripts/test-endpoints.js
         env:
-          ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'dev' }}
-          BASE_URL: ${{ github.ref == 'refs/heads/main' && secrets.PROD_BACKEND_URL || secrets.DEV_BACKEND_URL }}
-          ADMIN_KEY: ${{ github.ref == 'refs/heads/main' && secrets.PROD_ADMIN_SECRET_KEY || secrets.DEV_ADMIN_SECRET_KEY }}
-          TEST_USER_EMAIL: ${{ github.ref == 'refs/heads/main' && secrets.PROD_TEST_USER_EMAIL || secrets.DEV_TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ github.ref == 'refs/heads/main' && secrets.PROD_TEST_USER_PASSWORD || secrets.DEV_TEST_USER_PASSWORD }}
+          PROD_URL: ${{ secrets.PROD_BACKEND_URL }}
+          PROD_KEY: ${{ secrets.PROD_ADMIN_SECRET_KEY }}
+          PROD_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
+          PROD_PWD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
+          DEV_URL: ${{ secrets.DEV_BACKEND_URL }}
+          DEV_KEY: ${{ secrets.DEV_ADMIN_SECRET_KEY }}
+          DEV_EMAIL: ${{ secrets.DEV_TEST_USER_EMAIL }}
+          DEV_PWD: ${{ secrets.DEV_TEST_USER_PASSWORD }}

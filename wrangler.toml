@@ -23,6 +23,10 @@ ENVIRONMENT = "dev"
 binding = "HYPERDRIVE"
 id = "a6387124dba5424dbe426cec2bf32716"
 
+[[env.dev.services]]
+binding = "SANDBOX"
+service = "agent-playground-sandbox-dev"
+
 # ----------------------------------------------------
 # Production Environment
 # ----------------------------------------------------
@@ -36,3 +40,7 @@ ENVIRONMENT = "production"
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "afad88bd09374ee8ae9bbd3b03de18ab"
+
+[[env.production.services]]
+binding = "SANDBOX"
+service = "agent-playground-sandbox-prod"

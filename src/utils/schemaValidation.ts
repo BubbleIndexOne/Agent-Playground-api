@@ -18,9 +18,14 @@ export function validateSchemaConsistency(code: string, schemaJson: any): { vali
     }
   }
 
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
   // 2. Check if the code actually reads the documented parameters
   for (const key of Object.keys(properties)) {
-    const paramRegex = new RegExp(`\\b${key}\\b`);
+    const escapedKey = escapeRegExp(key);
+    const paramRegex = new RegExp(`\\b${escapedKey}\\b`);
     if (!paramRegex.test(code)) {
       return { valid: false, error: `@param ${key} documented but not read in function body` };
     }

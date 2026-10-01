@@ -53,15 +53,18 @@ describe('deployment workflow', () => {
     );
   });
 
-  it('deploys the sandbox worker after tests pass and before main backend deploy', () => {
+  it('deploys the sandbox worker to environment-specific targets after tests pass and before main backend deploy', () => {
     const sandbox = job('deploy-sandbox', 'deploy');
     expect(sandbox).toMatch(/needs: test/);
-    expect(sandbox).toContain('run: npx wrangler deploy --config sandbox-worker/wrangler.toml');
+    expect(sandbox).toContain('npx wrangler deploy --config sandbox-worker/wrangler.toml --env production');
+    expect(sandbox).toContain('npx wrangler deploy --config sandbox-worker/wrangler.toml --env dev');
   });
 
-  it('runs live E2E verification after deployment', () => {
+  it('runs live E2E verification with branch-specific credentials after deployment', () => {
     const e2e = job('e2e-test');
     expect(e2e).toMatch(/needs: deploy/);
     expect(e2e).toContain('node scripts/test-endpoints.js');
+    expect(e2e).toContain('export BASE_URL="$PROD_URL"');
+    expect(e2e).toContain('export BASE_URL="$DEV_URL"');
   });
 });
