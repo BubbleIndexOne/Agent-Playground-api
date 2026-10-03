@@ -44,3 +44,8 @@ export const HEALTH_CONSTANTS = {
   STATUS_CONNECTED: 'connected',
   STATUS_UNAVAILABLE: 'unavailable',
 } as const;
+
+export const VAULT_CONSTANTS = {
+  /** Deterministic 32-byte fallback master key used ONLY for local dev/testing environments when VAULT_ENCRYPTION_KEY is unset. */
+  DEFAULT_DEV_VAULT_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+} as const;

@@ -3,8 +3,9 @@
  * Provides zero-plaintext storage for third-party connector credentials.
  */
 
-// Deterministic 32-byte fallback master key used ONLY for local dev/testing environments
-export const DEFAULT_DEV_VAULT_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+import { VAULT_CONSTANTS } from '../constants';
+
+export const DEFAULT_DEV_VAULT_KEY = VAULT_CONSTANTS.DEFAULT_DEV_VAULT_KEY;
 
 /**
  * Encodes a Uint8Array into a standard Base64 string.
