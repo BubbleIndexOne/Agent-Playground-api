@@ -51,6 +51,9 @@ describe('application factory', () => {
       '/tools/{id}/diff',
       '/health',
       '/health/db',
+      '/connectors',
+      '/connectors/{type}/credentials',
+      '/connectors/{type}/test',
     ]);
     expect(spec.paths['/auth/me'].get.security).toEqual([{ bearer: [] }]);
     expect(spec.paths['/auth/signup'].post.responses).toMatchObject({

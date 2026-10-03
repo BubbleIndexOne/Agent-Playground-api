@@ -5,6 +5,7 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { authRouter } from './routes/auth';
 import { healthRouter } from './routes/health';
 import { toolsRouter } from './routes/tools';
+import { connectorsRouter } from './routes/connectors';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -322,6 +323,37 @@ const openApiSpec = {
               schema_changed: { type: 'boolean', example: false },
             },
           },
+        },
+      },
+      PostgresCredentials: {
+        type: 'object',
+        required: ['host', 'database', 'user', 'password'],
+        properties: {
+          host: { type: 'string', example: 'postgres.example.com' },
+          port: { type: 'integer', default: 5432, example: 5432 },
+          database: { type: 'string', example: 'analytics' },
+          user: { type: 'string', example: 'agent_user' },
+          password: { type: 'string', example: 'P@ssw0rd123' },
+          ssl: { type: 'boolean', default: true, example: true },
+        },
+      },
+      SlackCredentials: {
+        type: 'object',
+        required: ['botToken'],
+        properties: {
+          botToken: { type: 'string', example: 'xoxb-1234567890-abcdefgh' },
+          signingSecret: { type: 'string', example: 'a1b2c3d4e5f6' },
+        },
+      },
+      ConnectorItem: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          connector_type: { type: 'string', example: 'postgres' },
+          preview: { type: 'string', example: 'agent_user@postgres.example.com:5432/analytics' },
+          key_version: { type: 'integer', example: 1 },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
         },
       },
     },
@@ -875,6 +907,180 @@ const openApiSpec = {
         },
       },
     },
+    '/connectors': {
+      get: {
+        tags: ['connectors'],
+        summary: 'List configured connector integrations (metadata & previews only)',
+        security: [{ bearer: [] }],
+        responses: {
+          200: {
+            description: 'List of configured connectors',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    connectors: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/ConnectorItem' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/connectors/{type}/credentials': {
+      put: {
+        tags: ['connectors'],
+        summary: 'Upsert encrypted connector credentials',
+        description: 'Idempotently stores credentials in AES-GCM encrypted vault. Pass ?verify=true to test connection before persisting.',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['postgres', 'slack'] },
+            description: 'Connector type identifier',
+          },
+          {
+            name: 'verify',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean' },
+            description: 'Optional flag to test connection before saving',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                oneOf: [
+                  { $ref: '#/components/schemas/PostgresCredentials' },
+                  { $ref: '#/components/schemas/SlackCredentials' },
+                ],
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Credentials saved successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Credentials for postgres saved successfully' },
+                    connector: { $ref: '#/components/schemas/ConnectorItem' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Validation or verification error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['connectors'],
+        summary: 'Delete connector credentials',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['postgres', 'slack'] },
+            description: 'Connector type identifier',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Credentials deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Credentials for postgres deleted successfully' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Connector credentials not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/connectors/{type}/test': {
+      post: {
+        tags: ['connectors'],
+        summary: 'Test connector connection with supplied or stored credentials',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['postgres', 'slack'] },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                oneOf: [
+                  { $ref: '#/components/schemas/PostgresCredentials' },
+                  { $ref: '#/components/schemas/SlackCredentials' },
+                ],
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Connection test passed',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Slack connection verified successfully' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Connection test failed',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -891,6 +1097,7 @@ export function createApp() {
   app.route('/auth', authRouter);
   app.route('/health', healthRouter);
   app.route('/tools', toolsRouter);
+  app.route('/connectors', connectorsRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));

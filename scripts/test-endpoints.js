@@ -459,7 +459,56 @@ async function run() {
     logFail('RBAC Visibility (Admin)', err.message);
   }
 
-  // 21. Post-Test Cleanup Phase (Hard purge created test tools & restore profile)
+  // 21. Connector Credentials Vault Lifecycle (PUT, GET, DELETE)
+  try {
+    // 21a. Upsert Slack credentials
+    const putConnRes = await request('/connectors/slack/credentials', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ botToken: 'xoxb-live-e2e-token-5678' }),
+    });
+
+    if (
+      putConnRes.status === 200 &&
+      putConnRes.body.success === true &&
+      putConnRes.body.connector?.preview === 'xoxb-••••5678' &&
+      !JSON.stringify(putConnRes.body).includes('live-e2e-token')
+    ) {
+      logPass('PUT /connectors/slack/credentials', `Preview stored: ${putConnRes.body.connector.preview}`);
+    } else {
+      logFail('PUT /connectors/slack/credentials', JSON.stringify(putConnRes.body));
+    }
+
+    // 21b. List connectors
+    const getConnRes = await request('/connectors', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const hasSlack = getConnRes.body.connectors?.some(
+      (c) => c.connector_type === 'slack' && c.preview === 'xoxb-••••5678',
+    );
+    if (getConnRes.status === 200 && hasSlack) {
+      logPass('GET /connectors', 'Configured connectors returned with preview');
+    } else {
+      logFail('GET /connectors', JSON.stringify(getConnRes.body));
+    }
+
+    // 21c. Delete connector credentials
+    const delConnRes = await request('/connectors/slack/credentials', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (delConnRes.status === 200 && delConnRes.body.success === true) {
+      logPass('DELETE /connectors/slack/credentials', 'Credentials deleted cleanly');
+    } else {
+      logFail('DELETE /connectors/slack/credentials', JSON.stringify(delConnRes.body));
+    }
+  } catch (err) {
+    logFail('Connector Vault E2E', err.message);
+  }
+
+  // 22. Post-Test Cleanup Phase (Hard purge created test tools & restore profile)
   try {
     // Restore display_name to what it was before the test run
     await request('/auth/me', {
