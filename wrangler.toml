@@ -15,6 +15,7 @@ name = "agent-playground-backend-dev"
 
 [env.dev.vars]
 ENVIRONMENT = "dev"
+VAULT_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 # Hyperdrive binding — Supabase Dev database
 # For local development, set the untracked
