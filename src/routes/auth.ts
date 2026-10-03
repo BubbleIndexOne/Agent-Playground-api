@@ -13,6 +13,7 @@ import {
   DeleteAccountSchema,
 } from '../schemas/auth';
 import { AUTH_CONSTANTS, JWT_CONSTANTS } from '../constants';
+import { timingSafeEqualStrings } from '../utils/crypto';
 
 // ─── Auth Router ──────────────────────────────────────────────────────────────
 
@@ -338,7 +339,7 @@ authRouter.delete('/users/:id', async (c) => {
     (c.env as { ADMIN_SECRET_KEY?: string } | undefined)?.ADMIN_SECRET_KEY ||
     process.env.ADMIN_SECRET_KEY;
 
-  if (!expectedAdminKey || !adminKey || adminKey !== expectedAdminKey) {
+  if (!expectedAdminKey || !adminKey || !timingSafeEqualStrings(adminKey, expectedAdminKey)) {
     throw new HTTPException(403, { message: 'Forbidden: invalid or missing admin key' });
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeCodeHash } from '../../src/utils/crypto';
+import { computeCodeHash, timingSafeEqualStrings } from '../../src/utils/crypto';
 
 describe('computeCodeHash', () => {
   it('computes expected SHA-256 hex string for empty string', async () => {
@@ -22,5 +22,25 @@ describe('computeCodeHash', () => {
     const hashB = await computeCodeHash('console.log("b");');
 
     expect(hashA).not.toBe(hashB);
+  });
+});
+
+describe('timingSafeEqualStrings', () => {
+  it('returns true for identical strings', () => {
+    expect(timingSafeEqualStrings('secret-key-123', 'secret-key-123')).toBe(true);
+    expect(timingSafeEqualStrings('', '')).toBe(true);
+  });
+
+  it('returns false for different strings of same length', () => {
+    expect(timingSafeEqualStrings('secret-key-123', 'secret-key-456')).toBe(false);
+  });
+
+  it('returns false for strings of different length', () => {
+    expect(timingSafeEqualStrings('secret-key-123', 'secret')).toBe(false);
+  });
+
+  it('returns false when inputs are not strings', () => {
+    expect(timingSafeEqualStrings(null as any, 'secret')).toBe(false);
+    expect(timingSafeEqualStrings('secret', undefined as any)).toBe(false);
   });
 });

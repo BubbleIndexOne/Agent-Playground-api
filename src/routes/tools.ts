@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { HTTPException } from 'hono/http-exception';
 import { requireAuth } from '../middleware/auth';
 import { query, withTransaction } from '../services/database';
-import { computeCodeHash } from '../utils/crypto';
+import { computeCodeHash, timingSafeEqualStrings } from '../utils/crypto';
 import { CreateToolSchema, CreateToolVersionSchema, UpdateToolSchema } from '../schemas/tools';
 import { validateSchemaConsistency } from '../utils/schemaValidation';
 import { generateTestInputs } from '../utils/testInputGenerator';
@@ -45,7 +45,9 @@ function checkIsAdmin(c: any): boolean {
   const expectedAdminKey =
     (c.env as { ADMIN_SECRET_KEY?: string } | undefined)?.ADMIN_SECRET_KEY ||
     process.env.ADMIN_SECRET_KEY;
-  return Boolean(expectedAdminKey && adminKey && adminKey === expectedAdminKey);
+  return Boolean(
+    expectedAdminKey && adminKey && timingSafeEqualStrings(adminKey, expectedAdminKey),
+  );
 }
 
 async function verifyToolAccess(toolId: string, user: { id: string }, isAdmin: boolean) {
@@ -603,9 +605,14 @@ toolsRouter.patch(
 
     // 2. Security checks for status changes
     if (data.status && !isAdmin) {
-      if (data.status === 'verified' && tool.type === 'mcp') {
+      if (data.status === 'verified') {
+        if (tool.type === 'mcp') {
+          throw new HTTPException(403, {
+            message: 'MCP tools cannot be set to "verified" without administrator verification',
+          });
+        }
         throw new HTTPException(403, {
-          message: 'MCP tools cannot be set to "verified" without administrator verification',
+          message: 'Client tools cannot be set to "verified" without administrator verification',
         });
       }
       if (['testing', 'registered', 'rejected'].includes(data.status)) {

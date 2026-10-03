@@ -326,6 +326,38 @@ const openApiSpec = {
           },
         },
       },
+      ToolRegisterInput: {
+        type: 'object',
+        properties: {
+          inputs: {
+            type: 'object',
+            description: 'Optional custom inputs matching tool schema to test against in the sandbox',
+            example: { url: 'https://example.com' },
+          },
+        },
+      },
+      ToolRegistrationResponse: {
+        type: 'object',
+        required: ['success', 'message', 'testResults'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Tool successfully registered' },
+          testResults: {
+            type: 'object',
+            required: ['status', 'timestamp'],
+            properties: {
+              status: { type: 'string', enum: ['passed', 'failed'], example: 'passed' },
+              result: { type: 'object', nullable: true },
+              observedCalls: { type: 'array', items: { type: 'string' }, example: ['fetch'] },
+              durationMs: { type: 'integer', example: 120 },
+              inputsUsed: { type: 'object' },
+              timestamp: { type: 'string', format: 'date-time' },
+              reason: { type: 'string', nullable: true },
+              details: { type: 'object', nullable: true },
+            },
+          },
+        },
+      },
       PostgresCredentials: {
         type: 'object',
         required: ['host', 'database', 'user', 'password'],
@@ -744,6 +776,13 @@ const openApiSpec = {
             schema: { type: 'string', format: 'uuid' },
             description: 'Tool UUID',
           },
+          {
+            name: 'purge',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean' },
+            description: 'Admin only: permanently purge tool and its versions from the database',
+          },
         ],
         responses: {
           200: {
@@ -927,6 +966,61 @@ const openApiSpec = {
           },
           404: {
             description: 'Tool or version not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/tools/{id}/register': {
+      post: {
+        tags: ['tools'],
+        summary: 'Run automated sandbox registration audit for client tool',
+        description: 'Validates schema consistency, generates test inputs, and executes client tool code inside isolated Cloudflare Sandbox Worker to transition status from draft to registered.',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID to register',
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ToolRegisterInput' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Tool registered successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ToolRegistrationResponse' },
+              },
+            },
+          },
+          400: {
+            description: 'Registration rejected (schema mismatch, runtime exception, or capability violation)',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ToolRegistrationResponse' },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Forbidden: only tool owner can initiate registration',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found or missing version',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
           },
         },
@@ -1319,6 +1413,13 @@ const openApiSpec = {
             in: 'path',
             required: true,
             schema: { type: 'string', format: 'uuid' },
+          },
+          {
+            name: 'purge',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean' },
+            description: 'Permanently purge preset from database instead of soft-archiving',
           },
         ],
         responses: {
