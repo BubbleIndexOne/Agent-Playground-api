@@ -517,8 +517,8 @@ async function run() {
     });
     if (
       defaultsRes.status === 200 &&
-      defaultsRes.body.defaults?.anthropic?.temperature === 1.0 &&
-      defaultsRes.body.defaults?.openai?.temperature === 1.0
+      defaultsRes.body.defaults?.temperature === 1.0 &&
+      defaultsRes.body.defaults?.topP === 1.0
     ) {
       logPass('GET /model-presets/defaults', 'Returned canonical model parameter defaults');
     } else {

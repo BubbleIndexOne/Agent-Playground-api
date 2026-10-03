@@ -265,17 +265,26 @@ modelPresetsRouter.patch('/:id', requireAuth, async (c) => {
 
   if (data.params !== undefined) {
     const normalized = normalizeModelConfigKeys(data.params);
-    const configParse = ModelConfigSchema.safeParse(normalized);
+    const existingDelta =
+      typeof existing.params_json === 'string'
+        ? JSON.parse(existing.params_json)
+        : (existing.params_json || {});
+    const merged = {
+      ...existingDelta,
+      ...normalized,
+    };
+
+    const configParse = ModelConfigSchema.safeParse(merged);
     if (!configParse.success) {
       throw new HTTPException(400, { message: configParse.error.errors[0]?.message });
     }
     try {
-      validateProviderConstraints(targetProvider, normalized);
+      validateProviderConstraints(targetProvider, merged);
     } catch (err: any) {
       throw new HTTPException(400, { message: err.message });
     }
 
-    const sparseDelta = toSparseDelta(normalized);
+    const sparseDelta = toSparseDelta(merged);
     params.push(JSON.stringify(sparseDelta));
     updates.push(`params_json = $${params.length}`);
   }

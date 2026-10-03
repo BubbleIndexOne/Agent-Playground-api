@@ -275,6 +275,53 @@ describe('Model Presets Routes (/model-presets)', () => {
       expect(updateSql).toContain('UPDATE public.model_presets');
       expect(updateParams).toContain(JSON.stringify({ temperature: 0.5 }));
     });
+
+    it('merges new partial params with existing sparse delta', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'preset-uuid-3b',
+            provider: 'anthropic',
+            params_json: { temperature: 0.25, maxOutputTokens: 2048 },
+          },
+        ],
+      });
+
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'preset-uuid-3b',
+            owner_id: mockUser.id,
+            name: 'Anthropic Preset',
+            provider: 'anthropic',
+            model_id: 'claude-3-7-sonnet-latest',
+            params_json: { temperature: 0.5, maxOutputTokens: 2048 },
+            is_archived: false,
+            created_at: '2026-10-03T12:00:00Z',
+            updated_at: '2026-10-03T12:05:00Z',
+          },
+        ],
+      });
+
+      const res = await app.request('/model-presets/preset-uuid-3b', {
+        method: 'PATCH',
+        headers: {
+          Authorization: 'Bearer valid.jwt.token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          params: { temperature: 0.5 },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const [, updateParams] = dbMocks.query.mock.calls[1];
+      const savedDelta = JSON.parse(updateParams[0]);
+      expect(savedDelta).toEqual({
+        temperature: 0.5,
+        maxOutputTokens: 2048,
+      });
+    });
   });
 
   describe('DELETE /model-presets/:id', () => {
