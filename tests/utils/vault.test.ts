@@ -34,11 +34,18 @@ describe('Vault Crypto Utility (AES-GCM)', () => {
     expect(parsed.password).toBe('superSecretPassword!#123');
   });
 
-  it('works seamlessly with the default dev key when key is omitted', async () => {
+  it('works seamlessly with the default dev key when key is explicitly passed', async () => {
     const payload = 'test-token-xoxb-123456';
-    const encrypted = await encryptVaultPayload(payload);
-    const decrypted = await decryptVaultPayload(encrypted);
+    const encrypted = await encryptVaultPayload(payload, DEFAULT_DEV_VAULT_KEY);
+    const decrypted = await decryptVaultPayload(encrypted, DEFAULT_DEV_VAULT_KEY);
     expect(decrypted).toBe(payload);
+  });
+
+  it('rejects encryption and decryption when master key is missing or empty', async () => {
+    await expect(encryptVaultPayload('secret', '')).rejects.toThrow('Vault master key is required');
+    await expect(encryptVaultPayload('secret', undefined as any)).rejects.toThrow('Vault master key is required');
+    await expect(decryptVaultPayload('iv:cipher', '')).rejects.toThrow('Vault master key is required');
+    await expect(decryptVaultPayload('iv:cipher', undefined as any)).rejects.toThrow('Vault master key is required');
   });
 
   it('fails to decrypt if an incorrect master key is supplied', async () => {

@@ -40,14 +40,15 @@ function formatToolRow(row: any) {
   };
 }
 
-function checkIsAdmin(c: any): boolean {
+async function checkIsAdmin(c: any): Promise<boolean> {
   const adminKey = c.req.header('x-admin-key');
   const expectedAdminKey =
     (c.env as { ADMIN_SECRET_KEY?: string } | undefined)?.ADMIN_SECRET_KEY ||
     process.env.ADMIN_SECRET_KEY;
-  return Boolean(
-    expectedAdminKey && adminKey && timingSafeEqualStrings(adminKey, expectedAdminKey),
-  );
+  if (!expectedAdminKey || !adminKey) {
+    return false;
+  }
+  return timingSafeEqualStrings(adminKey, expectedAdminKey);
 }
 
 async function verifyToolAccess(toolId: string, user: { id: string }, isAdmin: boolean) {
@@ -139,7 +140,7 @@ toolsRouter.get('/', requireAuth, async (c) => {
   const includeArchived = c.req.query('include_archived') === 'true';
   const typeFilter = c.req.query('type');
   const statusFilter = c.req.query('status');
-  const isAdmin = checkIsAdmin(c);
+  const isAdmin = await checkIsAdmin(c);
 
   const conditions: string[] = [];
   const params: any[] = [];
@@ -196,7 +197,7 @@ toolsRouter.get('/', requireAuth, async (c) => {
 toolsRouter.get('/:id/diff', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
-  const isAdmin = checkIsAdmin(c);
+  const isAdmin = await checkIsAdmin(c);
 
   await verifyToolAccess(toolId, user, isAdmin);
 
@@ -244,7 +245,7 @@ toolsRouter.get('/:id/diff', requireAuth, async (c) => {
 toolsRouter.get('/:id/versions', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
-  const isAdmin = checkIsAdmin(c);
+  const isAdmin = await checkIsAdmin(c);
 
   await verifyToolAccess(toolId, user, isAdmin);
 
@@ -265,7 +266,7 @@ toolsRouter.get('/:id/versions/:versionNumber', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
   const versionNumber = parseInt(c.req.param('versionNumber'), 10);
-  const isAdmin = checkIsAdmin(c);
+  const isAdmin = await checkIsAdmin(c);
 
   if (isNaN(versionNumber)) {
     throw new HTTPException(400, { message: 'versionNumber must be a valid integer' });
@@ -295,7 +296,7 @@ toolsRouter.get('/:id/versions/:versionNumber', requireAuth, async (c) => {
 toolsRouter.get('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
-  const isAdmin = checkIsAdmin(c);
+  const isAdmin = await checkIsAdmin(c);
 
   const result = await query(
     `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
@@ -580,7 +581,7 @@ toolsRouter.patch(
     const user = c.get('user');
     const toolId = c.req.param('id');
     const data = c.req.valid('json');
-    const isAdmin = checkIsAdmin(c);
+    const isAdmin = await checkIsAdmin(c);
 
     // 1. Fetch tool and verify ownership
     const toolCheck = await query<{
@@ -684,7 +685,7 @@ toolsRouter.patch(
 toolsRouter.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
-  const isAdmin = checkIsAdmin(c);
+  const isAdmin = await checkIsAdmin(c);
   const purge = c.req.query('purge') === 'true';
 
   // 1. Fetch tool

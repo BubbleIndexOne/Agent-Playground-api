@@ -50,6 +50,8 @@ export const VAULT_CONSTANTS = {
   DEFAULT_DEV_VAULT_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
 } as const;
 
+export const DEFAULT_DEV_VAULT_KEY = VAULT_CONSTANTS.DEFAULT_DEV_VAULT_KEY;
+
 export const DEFAULT_MODEL_CONFIGS = {
   /** Default sampling temperature (1.0 = standard creative balance) */
   temperature: 1.0,

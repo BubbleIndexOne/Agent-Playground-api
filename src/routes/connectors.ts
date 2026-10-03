@@ -122,7 +122,10 @@ connectorsRouter.put('/:type/credentials', requireAuth, async (c) => {
   const preview = generateConnectorPreview(typeParam, validatedData);
 
   // Encrypt payload using AES-GCM vault master key
-  const vaultKey = env.VAULT_ENCRYPTION_KEY;
+  const vaultKey = env.VAULT_ENCRYPTION_KEY || process.env.VAULT_ENCRYPTION_KEY;
+  if (!vaultKey) {
+    throw new HTTPException(500, { message: 'Vault encryption key is not configured' });
+  }
   const encryptedPayload = await encryptVaultPayload(JSON.stringify(validatedData), vaultKey);
 
   // Upsert into database
@@ -227,8 +230,27 @@ connectorsRouter.post('/:type/test', requireAuth, async (c) => {
         message: `No credentials found to test for connector "${typeParam}". Please supply credentials in the request body.`,
       });
     }
-    const decrypted = await decryptVaultPayload(saved.rows[0].encrypted_payload, env.VAULT_ENCRYPTION_KEY);
-    credentialsData = JSON.parse(decrypted);
+    const vaultKey = env.VAULT_ENCRYPTION_KEY || process.env.VAULT_ENCRYPTION_KEY;
+    if (!vaultKey) {
+      throw new HTTPException(500, { message: 'Vault encryption key is not configured' });
+    }
+    let decrypted: string;
+    try {
+      decrypted = await decryptVaultPayload(saved.rows[0].encrypted_payload, vaultKey);
+      credentialsData = JSON.parse(decrypted);
+    } catch {
+      throw new HTTPException(400, {
+        message: `Failed to decrypt or parse stored credentials for connector "${typeParam}"`,
+      });
+    }
+
+    const parseResult = CONNECTOR_SCHEMAS[typeParam].safeParse(credentialsData);
+    if (!parseResult.success) {
+      throw new HTTPException(400, {
+        message: `Stored credentials for connector "${typeParam}" are invalid or corrupt`,
+      });
+    }
+    credentialsData = parseResult.data;
   }
 
   const result = await testConnectorConnection(typeParam, credentialsData);

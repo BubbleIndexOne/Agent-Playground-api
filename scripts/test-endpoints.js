@@ -460,6 +460,7 @@ async function run() {
   }
 
   // 21. Connector Credentials Vault Lifecycle (PUT, GET, DELETE)
+  let slackCredsStored = false;
   try {
     // 21a. Upsert Slack credentials
     const putConnRes = await request('/connectors/slack/credentials', {
@@ -474,6 +475,7 @@ async function run() {
       putConnRes.body.connector?.preview === 'xoxb-••••5678' &&
       !JSON.stringify(putConnRes.body).includes('live-e2e-token')
     ) {
+      slackCredsStored = true;
       logPass('PUT /connectors/slack/credentials', `Preview stored: ${putConnRes.body.connector.preview}`);
     } else {
       logFail('PUT /connectors/slack/credentials', JSON.stringify(putConnRes.body));
@@ -500,6 +502,7 @@ async function run() {
     });
 
     if (delConnRes.status === 200 && delConnRes.body.success === true) {
+      slackCredsStored = false;
       logPass('DELETE /connectors/slack/credentials', 'Credentials deleted cleanly');
     } else {
       logFail('DELETE /connectors/slack/credentials', JSON.stringify(delConnRes.body));
@@ -631,7 +634,13 @@ async function run() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
     }
-    logPass('Post-Test Cleanup', 'Purged test tools, presets and restored profile display_name');
+    if (slackCredsStored) {
+      await request('/connectors/slack/credentials', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
+    logPass('Post-Test Cleanup', 'Purged test tools, credentials, presets and restored profile display_name');
   } catch (err) {
     console.warn('⚠️ [CLEANUP WARNING]', err.message);
   }

@@ -21,13 +21,10 @@ vi.mock('../../src/services/jwt', () => ({
 }));
 
 import { connectorsRouter } from '../../src/routes/connectors';
+import { DEFAULT_DEV_VAULT_KEY } from '../../src/constants';
 
 function createConnectorsApp(env: Record<string, unknown> = {}) {
   const app = new Hono<{ Bindings: Record<string, unknown> }>();
-  app.use('*', async (c, next) => {
-    c.env = Object.assign({}, c.env, env);
-    await next();
-  });
   app.route('/connectors', connectorsRouter);
   app.onError((error, c) => {
     if (error instanceof HTTPException) {
@@ -35,6 +32,10 @@ function createConnectorsApp(env: Record<string, unknown> = {}) {
     }
     return c.json({ statusCode: 500, message: (error as Error).message }, 500);
   });
+  const originalRequest = app.request.bind(app);
+  app.request = (input: RequestInfo | URL, init?: RequestInit, customEnv?: unknown, executionCtx?: unknown) => {
+    return originalRequest(input, init, (customEnv !== undefined ? customEnv : env) as any, executionCtx);
+  };
   return app;
 }
 
@@ -50,9 +51,26 @@ describe('Connectors Routes (/connectors)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    app = createConnectorsApp();
+    app = createConnectorsApp({ VAULT_ENCRYPTION_KEY: DEFAULT_DEV_VAULT_KEY });
     // Default valid token
     jwtMocks.verifyAccessToken.mockResolvedValue(mockUser);
+  });
+
+  describe('Configuration guard', () => {
+    it('returns 500 when VAULT_ENCRYPTION_KEY is not configured', async () => {
+      const unconfiguredApp = createConnectorsApp({});
+      const res = await unconfiguredApp.request('/connectors/slack/credentials', {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer valid.jwt.token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ botToken: 'xoxb-test' }),
+      });
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.message).toContain('Vault encryption key is not configured');
+    });
   });
 
   describe('Authentication', () => {
@@ -149,7 +167,6 @@ describe('Connectors Routes (/connectors)', () => {
         },
         body: JSON.stringify(postgresPayload),
       });
-
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.success).toBe(true);
@@ -278,6 +295,21 @@ describe('Connectors Routes (/connectors)', () => {
       } finally {
         globalThis.fetch = originalFetch;
       }
+    });
+
+    it('returns 400 when saved credentials cannot be decrypted', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [{ encrypted_payload: 'invalid-iv:invalid-cipher' }],
+      });
+
+      const res = await app.request('/connectors/slack/test', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer valid.jwt.token' },
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toContain('Failed to decrypt or parse stored credentials');
     });
   });
 });

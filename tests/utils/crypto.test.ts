@@ -26,21 +26,21 @@ describe('computeCodeHash', () => {
 });
 
 describe('timingSafeEqualStrings', () => {
-  it('returns true for identical strings', () => {
-    expect(timingSafeEqualStrings('secret-key-123', 'secret-key-123')).toBe(true);
-    expect(timingSafeEqualStrings('', '')).toBe(true);
+  it('returns true for identical strings', async () => {
+    expect(await timingSafeEqualStrings('secret-key-123', 'secret-key-123')).toBe(true);
+    expect(await timingSafeEqualStrings('', '')).toBe(true);
   });
 
-  it('returns false for different strings of same length', () => {
-    expect(timingSafeEqualStrings('secret-key-123', 'secret-key-456')).toBe(false);
+  it('returns false for different strings of same length', async () => {
+    expect(await timingSafeEqualStrings('secret-key-123', 'secret-key-456')).toBe(false);
   });
 
-  it('returns false for strings of different length', () => {
-    expect(timingSafeEqualStrings('secret-key-123', 'secret')).toBe(false);
+  it('returns false for strings of different length', async () => {
+    expect(await timingSafeEqualStrings('secret-key-123', 'secret')).toBe(false);
   });
 
-  it('returns false when inputs are not strings', () => {
-    expect(timingSafeEqualStrings(null as any, 'secret')).toBe(false);
-    expect(timingSafeEqualStrings('secret', undefined as any)).toBe(false);
+  it('returns false when inputs are not strings', async () => {
+    expect(await timingSafeEqualStrings(null as any, 'secret')).toBe(false);
+    expect(await timingSafeEqualStrings('secret', undefined as any)).toBe(false);
   });
 });

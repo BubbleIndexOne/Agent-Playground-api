@@ -14,20 +14,23 @@ export async function computeCodeHash(code: string): Promise<string> {
 
 /**
  * Compares two strings in constant time to mitigate timing attacks against API keys and secrets.
+ * Compares fixed-length 32-byte SHA-256 digests to ensure strict constant-time comparison
+ * even when the inputs have different lengths.
  */
-export function timingSafeEqualStrings(a: string, b: string): boolean {
+export async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {
   if (typeof a !== 'string' || typeof b !== 'string') {
     return false;
   }
   const enc = new TextEncoder();
-  const aBuf = enc.encode(a);
-  const bBuf = enc.encode(b);
-  if (aBuf.length !== bBuf.length) {
-    return false;
-  }
+  const [aHash, bHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
+  ]);
+  const aBuf = new Uint8Array(aHash);
+  const bBuf = new Uint8Array(bHash);
   let diff = 0;
   for (let i = 0; i < aBuf.length; i++) {
     diff |= aBuf[i] ^ bBuf[i];
   }
-  return diff === 0;
+  return diff === 0 && a === b;
 }

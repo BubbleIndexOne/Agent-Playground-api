@@ -43,7 +43,10 @@ export function generateVaultMasterKey(): string {
  * Imports a raw 256-bit AES-GCM CryptoKey from Base64 string.
  */
 async function importVaultKey(keyB64: string, usage: 'encrypt' | 'decrypt'): Promise<CryptoKey> {
-  const rawBytes = base64ToUint8Array(keyB64 || DEFAULT_DEV_VAULT_KEY);
+  if (!keyB64 || typeof keyB64 !== 'string') {
+    throw new Error('Vault master key is required and cannot be empty');
+  }
+  const rawBytes = base64ToUint8Array(keyB64);
   if (rawBytes.byteLength !== 32) {
     throw new Error(`Invalid vault master key length: expected 32 bytes (256-bit), got ${rawBytes.byteLength}`);
   }
@@ -61,7 +64,7 @@ async function importVaultKey(keyB64: string, usage: 'encrypt' | 'decrypt'): Pro
  * Returns serialized format: `${ivBase64}:${ciphertextBase64}`
  */
 export async function encryptVaultPayload(plaintext: string, masterKeyB64?: string): Promise<string> {
-  const key = await importVaultKey(masterKeyB64 || DEFAULT_DEV_VAULT_KEY, 'encrypt');
+  const key = await importVaultKey(masterKeyB64 as string, 'encrypt');
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encodedPlaintext = new TextEncoder().encode(plaintext);
 
@@ -90,7 +93,7 @@ export async function decryptVaultPayload(encryptedPayload: string, masterKeyB64
     throw new Error('Invalid encrypted payload components');
   }
 
-  const key = await importVaultKey(masterKeyB64 || DEFAULT_DEV_VAULT_KEY, 'decrypt');
+  const key = await importVaultKey(masterKeyB64 as string, 'decrypt');
   const iv = base64ToUint8Array(ivB64);
   const cipherBytes = base64ToUint8Array(cipherB64);
 

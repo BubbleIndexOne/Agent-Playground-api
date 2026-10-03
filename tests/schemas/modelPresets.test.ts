@@ -151,7 +151,13 @@ describe('Model Presets Schemas & Delta Utilities', () => {
 
       expect(() =>
         CreateModelPresetSchema.parse({ name: 'Valid', provider: '' }),
-      ).toThrow(/provider cannot be empty/);
+      ).toThrow(/Invalid provider/);
+    });
+
+    it('rejects unsupported or noncanonical provider names', () => {
+      expect(() =>
+        CreateModelPresetSchema.parse({ name: 'Valid', provider: 'unknown_provider' }),
+      ).toThrow(/Invalid provider/);
     });
   });
 });

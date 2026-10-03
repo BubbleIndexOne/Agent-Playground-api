@@ -202,11 +202,19 @@ describe('Model Presets Routes (/model-presets)', () => {
       expect(res.status).toBe(404);
     });
 
+    it('returns 404 for invalid UUID format', async () => {
+      const res = await app.request('/model-presets/not-a-valid-uuid', {
+        headers: { Authorization: 'Bearer valid.jwt.token' },
+      });
+      expect(res.status).toBe(404);
+    });
+
     it('returns hydrated preset details', async () => {
+      const validId = '22222222-2222-4222-8222-222222222222';
       dbMocks.query.mockResolvedValueOnce({
         rows: [
           {
-            id: 'preset-uuid-2',
+            id: validId,
             owner_id: mockUser.id,
             name: 'Precise Fast',
             provider: 'openai',
@@ -219,7 +227,7 @@ describe('Model Presets Routes (/model-presets)', () => {
         ],
       });
 
-      const res = await app.request('/model-presets/preset-uuid-2', {
+      const res = await app.request(`/model-presets/${validId}`, {
         headers: { Authorization: 'Bearer valid.jwt.token' },
       });
 
@@ -231,17 +239,30 @@ describe('Model Presets Routes (/model-presets)', () => {
   });
 
   describe('PATCH /model-presets/:id', () => {
+    it('returns 404 for invalid UUID format', async () => {
+      const res = await app.request('/model-presets/invalid-uuid', {
+        method: 'PATCH',
+        headers: {
+          Authorization: 'Bearer valid.jwt.token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: 'New Name' }),
+      });
+      expect(res.status).toBe(404);
+    });
+
     it('updates preset parameters with sparse delta re-pruning', async () => {
+      const validId = '33333333-3333-4333-8333-333333333333';
       // 1. Existence check mock
       dbMocks.query.mockResolvedValueOnce({
-        rows: [{ id: 'preset-uuid-3', provider: 'openai', params_json: {} }],
+        rows: [{ id: validId, provider: 'openai', params_json: {} }],
       });
 
       // 2. Update execution mock
       dbMocks.query.mockResolvedValueOnce({
         rows: [
           {
-            id: 'preset-uuid-3',
+            id: validId,
             owner_id: mockUser.id,
             name: 'Updated Name',
             provider: 'openai',
@@ -254,7 +275,7 @@ describe('Model Presets Routes (/model-presets)', () => {
         ],
       });
 
-      const res = await app.request('/model-presets/preset-uuid-3', {
+      const res = await app.request(`/model-presets/${validId}`, {
         method: 'PATCH',
         headers: {
           Authorization: 'Bearer valid.jwt.token',
@@ -273,16 +294,18 @@ describe('Model Presets Routes (/model-presets)', () => {
 
       const [updateSql, updateParams] = dbMocks.query.mock.calls[1];
       expect(updateSql).toContain('UPDATE public.model_presets');
+      expect(updateSql).toContain('AND is_archived = false');
       expect(updateParams).toContain(JSON.stringify({ temperature: 0.5 }));
     });
 
-    it('merges new partial params with existing sparse delta', async () => {
+    it('merges new partial params with existing sparse delta and deletes null keys', async () => {
+      const validId = '44444444-4444-4444-8444-444444444444';
       dbMocks.query.mockResolvedValueOnce({
         rows: [
           {
-            id: 'preset-uuid-3b',
+            id: validId,
             provider: 'anthropic',
-            params_json: { temperature: 0.25, maxOutputTokens: 2048 },
+            params_json: { temperature: 0.25, maxOutputTokens: 2048, seed: 100 },
           },
         ],
       });
@@ -290,7 +313,7 @@ describe('Model Presets Routes (/model-presets)', () => {
       dbMocks.query.mockResolvedValueOnce({
         rows: [
           {
-            id: 'preset-uuid-3b',
+            id: validId,
             owner_id: mockUser.id,
             name: 'Anthropic Preset',
             provider: 'anthropic',
@@ -303,14 +326,14 @@ describe('Model Presets Routes (/model-presets)', () => {
         ],
       });
 
-      const res = await app.request('/model-presets/preset-uuid-3b', {
+      const res = await app.request(`/model-presets/${validId}`, {
         method: 'PATCH',
         headers: {
           Authorization: 'Bearer valid.jwt.token',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          params: { temperature: 0.5 },
+          params: { temperature: 0.5, seed: null }, // seed: null deletes seed from delta
         }),
       });
 
@@ -321,14 +344,53 @@ describe('Model Presets Routes (/model-presets)', () => {
         temperature: 0.5,
         maxOutputTokens: 2048,
       });
+      expect(savedDelta.seed).toBeUndefined();
+    });
+
+    it('validates existing parameters against new provider when provider changes without params', async () => {
+      const validId = '55555555-5555-4555-8555-555555555555';
+      // Existing preset on OpenAI with temperature 1.5 (invalid for Anthropic)
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: validId,
+            provider: 'openai',
+            params_json: { temperature: 1.5 },
+          },
+        ],
+      });
+
+      const res = await app.request(`/model-presets/${validId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: 'Bearer valid.jwt.token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: 'anthropic',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toContain('Anthropic temperature must be between 0.0 and 1.0');
     });
   });
 
   describe('DELETE /model-presets/:id', () => {
-    it('soft deletes preset by setting is_archived = true', async () => {
-      dbMocks.query.mockResolvedValueOnce({ rows: [{ id: 'preset-uuid-4' }] });
+    it('returns 404 for invalid UUID format', async () => {
+      const res = await app.request('/model-presets/bad-uuid', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer valid.jwt.token' },
+      });
+      expect(res.status).toBe(404);
+    });
 
-      const res = await app.request('/model-presets/preset-uuid-4', {
+    it('soft deletes preset by setting is_archived = true', async () => {
+      const validId = '66666666-6666-4666-8666-666666666666';
+      dbMocks.query.mockResolvedValueOnce({ rows: [{ id: validId }] });
+
+      const res = await app.request(`/model-presets/${validId}`, {
         method: 'DELETE',
         headers: { Authorization: 'Bearer valid.jwt.token' },
       });
@@ -342,9 +404,10 @@ describe('Model Presets Routes (/model-presets)', () => {
     });
 
     it('hard purges preset when ?purge=true is specified', async () => {
-      dbMocks.query.mockResolvedValueOnce({ rows: [{ id: 'preset-uuid-5' }] });
+      const validId = '77777777-7777-4777-8777-777777777777';
+      dbMocks.query.mockResolvedValueOnce({ rows: [{ id: validId }] });
 
-      const res = await app.request('/model-presets/preset-uuid-5?purge=true', {
+      const res = await app.request(`/model-presets/${validId}?purge=true`, {
         method: 'DELETE',
         headers: { Authorization: 'Bearer valid.jwt.token' },
       });

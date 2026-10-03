@@ -20,6 +20,7 @@ create index if not exists idx_model_presets_owner_provider
 
 -- RLS matching custom auth architecture
 alter table public.model_presets enable row level security;
+drop policy if exists "service role full access" on public.model_presets;
 create policy "service role full access" on public.model_presets 
   for all using (true) with check (true);
 

@@ -148,17 +148,24 @@ export const CreateModelPresetSchema = z.object({
     .trim()
     .min(1, 'name cannot be empty')
     .max(100, 'name cannot exceed 100 characters'),
-  provider: z
-    .string({ required_error: 'provider is required' })
-    .trim()
-    .min(1, 'provider cannot be empty'),
+  provider: z.enum(SUPPORTED_PROVIDERS, {
+    errorMap: () => ({
+      message: `Invalid provider. Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`,
+    }),
+  }),
   model_id: z.string().trim().nullable().optional(),
   params: z.record(z.any()).optional().default({}),
 });
 
 export const UpdateModelPresetSchema = z.object({
   name: z.string().trim().min(1, 'name cannot be empty').max(100).optional(),
-  provider: z.string().trim().min(1).optional(),
+  provider: z
+    .enum(SUPPORTED_PROVIDERS, {
+      errorMap: () => ({
+        message: `Invalid provider. Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`,
+      }),
+    })
+    .optional(),
   model_id: z.string().trim().nullable().optional(),
   params: z.record(z.any()).optional(),
   is_archived: z.boolean().optional(),

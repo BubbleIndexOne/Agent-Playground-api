@@ -160,6 +160,14 @@ modelPresetsRouter.get('/', requireAuth, async (c) => {
   });
 });
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validatePresetId(presetId: string): void {
+  if (!presetId || !UUID_REGEX.test(presetId)) {
+    throw new HTTPException(404, { message: `Model preset ${presetId} not found` });
+  }
+}
+
 /**
  * GET /model-presets/:id
  * Retrieves a single model preset by ID with full hydrated parameters.
@@ -167,6 +175,7 @@ modelPresetsRouter.get('/', requireAuth, async (c) => {
 modelPresetsRouter.get('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const presetId = c.req.param('id');
+  validatePresetId(presetId);
 
   const result = await query<{
     id: string;
@@ -215,6 +224,8 @@ modelPresetsRouter.get('/:id', requireAuth, async (c) => {
 modelPresetsRouter.patch('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const presetId = c.req.param('id');
+  validatePresetId(presetId);
+
   const body = await c.req.json().catch(() => ({}));
   const parseResult = UpdateModelPresetSchema.safeParse(body);
 
@@ -263,16 +274,35 @@ modelPresetsRouter.patch('/:id', requireAuth, async (c) => {
     updates.push(`is_archived = $${params.length}`);
   }
 
+  // If provider changed but params were omitted, validate existing params against targetProvider
+  if (data.params === undefined && data.provider !== undefined && data.provider !== existing.provider) {
+    const existingDelta =
+      typeof existing.params_json === 'string'
+        ? JSON.parse(existing.params_json)
+        : (existing.params_json || {});
+    try {
+      validateProviderConstraints(targetProvider, existingDelta);
+    } catch (err: any) {
+      throw new HTTPException(400, { message: err.message });
+    }
+  }
+
   if (data.params !== undefined) {
     const normalized = normalizeModelConfigKeys(data.params);
     const existingDelta =
       typeof existing.params_json === 'string'
         ? JSON.parse(existing.params_json)
         : (existing.params_json || {});
-    const merged = {
-      ...existingDelta,
-      ...normalized,
-    };
+
+    // Treat incoming null values as delete markers: remove those keys from merged
+    const merged: Record<string, any> = { ...existingDelta };
+    for (const [key, value] of Object.entries(normalized)) {
+      if (value === null) {
+        delete merged[key];
+      } else {
+        merged[key] = value;
+      }
+    }
 
     const configParse = ModelConfigSchema.safeParse(merged);
     if (!configParse.success) {
@@ -307,10 +337,14 @@ modelPresetsRouter.patch('/:id', requireAuth, async (c) => {
   }>(
     `UPDATE public.model_presets
      SET ${updates.join(', ')}
-     WHERE id = $${idIndex} AND owner_id = $${ownerIndex}
+     WHERE id = $${idIndex} AND owner_id = $${ownerIndex} AND is_archived = false
      RETURNING id, owner_id, name, provider, model_id, params_json, is_archived, created_at, updated_at`,
     params,
   );
+
+  if (result.rows.length === 0) {
+    throw new HTTPException(404, { message: `Model preset ${presetId} not found` });
+  }
 
   const row = result.rows[0];
 
@@ -338,6 +372,7 @@ modelPresetsRouter.patch('/:id', requireAuth, async (c) => {
 modelPresetsRouter.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const presetId = c.req.param('id');
+  validatePresetId(presetId);
   const purge = c.req.query('purge') === 'true';
 
   let result;

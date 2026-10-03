@@ -339,7 +339,7 @@ authRouter.delete('/users/:id', async (c) => {
     (c.env as { ADMIN_SECRET_KEY?: string } | undefined)?.ADMIN_SECRET_KEY ||
     process.env.ADMIN_SECRET_KEY;
 
-  if (!expectedAdminKey || !adminKey || !timingSafeEqualStrings(adminKey, expectedAdminKey)) {
+  if (!expectedAdminKey || !adminKey || !(await timingSafeEqualStrings(adminKey, expectedAdminKey))) {
     throw new HTTPException(403, { message: 'Forbidden: invalid or missing admin key' });
   }
 
