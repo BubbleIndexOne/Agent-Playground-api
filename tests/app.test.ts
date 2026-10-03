@@ -54,6 +54,9 @@ describe('application factory', () => {
       '/connectors',
       '/connectors/{type}/credentials',
       '/connectors/{type}/test',
+      '/model-presets/defaults',
+      '/model-presets',
+      '/model-presets/{id}',
     ]);
     expect(spec.paths['/auth/me'].get.security).toEqual([{ bearer: [] }]);
     expect(spec.paths['/auth/signup'].post.responses).toMatchObject({

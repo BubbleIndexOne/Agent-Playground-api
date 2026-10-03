@@ -6,6 +6,7 @@ import { authRouter } from './routes/auth';
 import { healthRouter } from './routes/health';
 import { toolsRouter } from './routes/tools';
 import { connectorsRouter } from './routes/connectors';
+import { modelPresetsRouter } from './routes/modelPresets';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -354,6 +355,54 @@ const openApiSpec = {
           key_version: { type: 'integer', example: 1 },
           created_at: { type: 'string', format: 'date-time' },
           updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      ModelPresetItem: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          owner_id: { type: 'string', format: 'uuid' },
+          name: { type: 'string', example: 'Creative Writer' },
+          provider: { type: 'string', example: 'anthropic' },
+          model_id: { type: 'string', nullable: true, example: 'claude-3-5-sonnet-20240620' },
+          params: {
+            type: 'object',
+            properties: {
+              temperature: { type: 'number', example: 0.8 },
+              topP: { type: 'number', example: 1.0 },
+              topK: { type: 'integer', example: 40 },
+              presencePenalty: { type: 'number', example: 0.0 },
+              frequencyPenalty: { type: 'number', example: 0.0 },
+              maxOutputTokens: { type: 'integer', example: 4096 },
+              seed: { type: 'integer', example: 123 },
+              stopSequences: { type: 'array', items: { type: 'string' } },
+              reasoning: { type: 'string', example: 'high' },
+              toolChoice: { type: 'string', example: 'auto' },
+            },
+          },
+          is_archived: { type: 'boolean', example: false },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      CreateModelPresetInput: {
+        type: 'object',
+        required: ['name', 'provider'],
+        properties: {
+          name: { type: 'string', example: 'Creative Writer' },
+          provider: { type: 'string', example: 'anthropic' },
+          model_id: { type: 'string', nullable: true, example: 'claude-3-5-sonnet-20240620' },
+          params: { type: 'object' },
+        },
+      },
+      UpdateModelPresetInput: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', example: 'Updated Preset Name' },
+          provider: { type: 'string', example: 'openai' },
+          model_id: { type: 'string', nullable: true, example: 'gpt-4o' },
+          params: { type: 'object' },
+          is_archived: { type: 'boolean', example: false },
         },
       },
     },
@@ -1081,6 +1130,219 @@ const openApiSpec = {
         },
       },
     },
+    '/model-presets/defaults': {
+      get: {
+        tags: ['model-presets'],
+        summary: 'Get system-wide baseline hyperparameter defaults',
+        responses: {
+          200: {
+            description: 'Baseline model hyperparameter defaults',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    defaults: { type: 'object' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/model-presets': {
+      get: {
+        tags: ['model-presets'],
+        summary: 'List active model presets for authenticated user',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Optional filter by provider (e.g. anthropic, openai)',
+          },
+          {
+            name: 'model_id',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Optional filter by model ID',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'List of model presets with fully hydrated parameters',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    presets: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/ModelPresetItem' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      post: {
+        tags: ['model-presets'],
+        summary: 'Create a new model preset',
+        description: 'Stores only the sparse delta in database and returns full hydrated configuration.',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateModelPresetInput' },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Model preset created successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Model preset created successfully' },
+                    preset: { $ref: '#/components/schemas/ModelPresetItem' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Validation error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/model-presets/{id}': {
+      get: {
+        tags: ['model-presets'],
+        summary: 'Get single model preset by ID',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Model preset details with hydrated configuration',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    preset: { $ref: '#/components/schemas/ModelPresetItem' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Preset not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['model-presets'],
+        summary: 'Update model preset metadata and parameters',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/UpdateModelPresetInput' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Preset updated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Model preset updated successfully' },
+                    preset: { $ref: '#/components/schemas/ModelPresetItem' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Preset not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['model-presets'],
+        summary: 'Delete or archive a model preset',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Preset deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Model preset archived successfully' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Preset not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -1098,6 +1360,7 @@ export function createApp() {
   app.route('/health', healthRouter);
   app.route('/tools', toolsRouter);
   app.route('/connectors', connectorsRouter);
+  app.route('/model-presets', modelPresetsRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));
