@@ -12,6 +12,17 @@ import { encryptVaultPayload, decryptVaultPayload } from '../utils/vault';
 
 export const connectorsRouter = new Hono();
 
+function getVaultKey(env: any): string | undefined {
+  return (
+    env?.VAULT_ENCRYPTION_KEY ||
+    env?.PROD_VAULT_ENCRYPTION_KEY ||
+    env?.DEV_VAULT_ENCRYPTION_KEY ||
+    process.env.VAULT_ENCRYPTION_KEY ||
+    process.env.PROD_VAULT_ENCRYPTION_KEY ||
+    process.env.DEV_VAULT_ENCRYPTION_KEY
+  );
+}
+
 // Helper to verify connection for supported connectors
 async function testConnectorConnection(
   type: SupportedConnectorType,
@@ -121,8 +132,9 @@ connectorsRouter.put('/:type/credentials', requireAuth, async (c) => {
   // Generate sanitized preview
   const preview = generateConnectorPreview(typeParam, validatedData);
 
+
   // Encrypt payload using AES-GCM vault master key
-  const vaultKey = env.VAULT_ENCRYPTION_KEY || process.env.VAULT_ENCRYPTION_KEY;
+  const vaultKey = getVaultKey(env);
   if (!vaultKey) {
     throw new HTTPException(500, { message: 'Vault encryption key is not configured' });
   }
@@ -230,7 +242,7 @@ connectorsRouter.post('/:type/test', requireAuth, async (c) => {
         message: `No credentials found to test for connector "${typeParam}". Please supply credentials in the request body.`,
       });
     }
-    const vaultKey = env.VAULT_ENCRYPTION_KEY || process.env.VAULT_ENCRYPTION_KEY;
+    const vaultKey = getVaultKey(env);
     if (!vaultKey) {
       throw new HTTPException(500, { message: 'Vault encryption key is not configured' });
     }
