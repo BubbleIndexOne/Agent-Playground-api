@@ -8,6 +8,9 @@ interface CloudflareEnv {
   SECRET_KEY?: string;
   ENVIRONMENT?: string;
   ADMIN_SECRET_KEY?: string;
+  VAULT_ENCRYPTION_KEY?: string;
+  PROD_VAULT_ENCRYPTION_KEY?: string;
+  DEV_VAULT_ENCRYPTION_KEY?: string;
 }
 
 // ─── App singleton ────────────────────────────────────────────────────────────
@@ -33,6 +36,13 @@ export default {
     }
     if (env?.ADMIN_SECRET_KEY) {
       process.env.ADMIN_SECRET_KEY = env.ADMIN_SECRET_KEY;
+    }
+    const vaultKey =
+      env?.VAULT_ENCRYPTION_KEY ||
+      env?.PROD_VAULT_ENCRYPTION_KEY ||
+      env?.DEV_VAULT_ENCRYPTION_KEY;
+    if (vaultKey) {
+      process.env.VAULT_ENCRYPTION_KEY = vaultKey;
     }
 
     return app.fetch(request, env, ctx);
