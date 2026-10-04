@@ -49,8 +49,15 @@ describe('application factory', () => {
       '/tools/{id}/versions',
       '/tools/{id}/versions/{versionNumber}',
       '/tools/{id}/diff',
+      '/tools/{id}/register',
       '/health',
       '/health/db',
+      '/connectors',
+      '/connectors/{type}/credentials',
+      '/connectors/{type}/test',
+      '/model-presets/defaults',
+      '/model-presets',
+      '/model-presets/{id}',
     ]);
     expect(spec.paths['/auth/me'].get.security).toEqual([{ bearer: [] }]);
     expect(spec.paths['/auth/signup'].post.responses).toMatchObject({
@@ -80,6 +87,7 @@ describe('application factory', () => {
     expect(spec.components.schemas).toHaveProperty('ToolVersionResponse');
     expect(spec.components.schemas).toHaveProperty('ToolResponse');
     expect(spec.components.schemas).toHaveProperty('ToolDiffResponse');
+    expect(spec.components.schemas).toHaveProperty('ToolRegistrationResponse');
 
     // Verify every endpoint response contains an application/json schema definition
     for (const [pathKey, pathItem] of Object.entries<any>(spec.paths)) {

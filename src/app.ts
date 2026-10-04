@@ -5,6 +5,8 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { authRouter } from './routes/auth';
 import { healthRouter } from './routes/health';
 import { toolsRouter } from './routes/tools';
+import { connectorsRouter } from './routes/connectors';
+import { modelPresetsRouter } from './routes/modelPresets';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -322,6 +324,117 @@ const openApiSpec = {
               schema_changed: { type: 'boolean', example: false },
             },
           },
+        },
+      },
+      ToolRegisterInput: {
+        type: 'object',
+        properties: {
+          inputs: {
+            type: 'object',
+            description: 'Optional custom inputs matching tool schema to test against in the sandbox',
+            example: { url: 'https://example.com' },
+          },
+        },
+      },
+      ToolRegistrationResponse: {
+        type: 'object',
+        required: ['success', 'message', 'testResults'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Tool successfully registered' },
+          testResults: {
+            type: 'object',
+            required: ['status', 'timestamp'],
+            properties: {
+              status: { type: 'string', enum: ['passed', 'failed'], example: 'passed' },
+              result: { type: 'object', nullable: true },
+              observedCalls: { type: 'array', items: { type: 'string' }, example: ['fetch'] },
+              durationMs: { type: 'integer', example: 120 },
+              inputsUsed: { type: 'object' },
+              timestamp: { type: 'string', format: 'date-time' },
+              reason: { type: 'string', nullable: true },
+              details: { type: 'object', nullable: true },
+            },
+          },
+        },
+      },
+      PostgresCredentials: {
+        type: 'object',
+        required: ['host', 'database', 'user', 'password'],
+        properties: {
+          host: { type: 'string', example: 'postgres.example.com' },
+          port: { type: 'integer', default: 5432, example: 5432 },
+          database: { type: 'string', example: 'analytics' },
+          user: { type: 'string', example: 'agent_user' },
+          password: { type: 'string', example: 'P@ssw0rd123' },
+          ssl: { type: 'boolean', default: true, example: true },
+        },
+      },
+      SlackCredentials: {
+        type: 'object',
+        required: ['botToken'],
+        properties: {
+          botToken: { type: 'string', example: 'xoxb-1234567890-abcdefgh' },
+          signingSecret: { type: 'string', example: 'a1b2c3d4e5f6' },
+        },
+      },
+      ConnectorItem: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          connector_type: { type: 'string', example: 'postgres' },
+          preview: { type: 'string', example: 'agent_user@postgres.example.com:5432/analytics' },
+          key_version: { type: 'integer', example: 1 },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      ModelPresetItem: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          owner_id: { type: 'string', format: 'uuid' },
+          name: { type: 'string', example: 'Creative Writer' },
+          provider: { type: 'string', example: 'anthropic' },
+          model_id: { type: 'string', nullable: true, example: 'claude-3-5-sonnet-20240620' },
+          params: {
+            type: 'object',
+            properties: {
+              temperature: { type: 'number', example: 0.8 },
+              topP: { type: 'number', example: 1.0 },
+              topK: { type: 'integer', example: 40 },
+              presencePenalty: { type: 'number', example: 0.0 },
+              frequencyPenalty: { type: 'number', example: 0.0 },
+              maxOutputTokens: { type: 'integer', example: 4096 },
+              seed: { type: 'integer', example: 123 },
+              stopSequences: { type: 'array', items: { type: 'string' } },
+              reasoning: { type: 'string', example: 'high' },
+              toolChoice: { type: 'string', example: 'auto' },
+            },
+          },
+          is_archived: { type: 'boolean', example: false },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      CreateModelPresetInput: {
+        type: 'object',
+        required: ['name', 'provider'],
+        properties: {
+          name: { type: 'string', example: 'Creative Writer' },
+          provider: { type: 'string', example: 'anthropic' },
+          model_id: { type: 'string', nullable: true, example: 'claude-3-5-sonnet-20240620' },
+          params: { type: 'object' },
+        },
+      },
+      UpdateModelPresetInput: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', example: 'Updated Preset Name' },
+          provider: { type: 'string', example: 'openai' },
+          model_id: { type: 'string', nullable: true, example: 'gpt-4o' },
+          params: { type: 'object' },
+          is_archived: { type: 'boolean', example: false },
         },
       },
     },
@@ -663,6 +776,13 @@ const openApiSpec = {
             schema: { type: 'string', format: 'uuid' },
             description: 'Tool UUID',
           },
+          {
+            name: 'purge',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean' },
+            description: 'Admin only: permanently purge tool and its versions from the database',
+          },
         ],
         responses: {
           200: {
@@ -851,6 +971,61 @@ const openApiSpec = {
         },
       },
     },
+    '/tools/{id}/register': {
+      post: {
+        tags: ['tools'],
+        summary: 'Run automated sandbox registration audit for client tool',
+        description: 'Validates schema consistency, generates test inputs, and executes client tool code inside isolated Cloudflare Sandbox Worker to transition status from draft to registered.',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Tool UUID to register',
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ToolRegisterInput' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Tool registered successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ToolRegistrationResponse' },
+              },
+            },
+          },
+          400: {
+            description: 'Registration rejected (schema mismatch, runtime exception, or capability violation)',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ToolRegistrationResponse' },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Forbidden: only tool owner can initiate registration',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found or missing version',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
     '/health': {
       get: {
         tags: ['health'],
@@ -875,6 +1050,400 @@ const openApiSpec = {
         },
       },
     },
+    '/connectors': {
+      get: {
+        tags: ['connectors'],
+        summary: 'List configured connector integrations (metadata & previews only)',
+        security: [{ bearer: [] }],
+        responses: {
+          200: {
+            description: 'List of configured connectors',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    connectors: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/ConnectorItem' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/connectors/{type}/credentials': {
+      put: {
+        tags: ['connectors'],
+        summary: 'Upsert encrypted connector credentials',
+        description: 'Idempotently stores credentials in AES-GCM encrypted vault. Pass ?verify=true to test connection before persisting.',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['postgres', 'slack'] },
+            description: 'Connector type identifier',
+          },
+          {
+            name: 'verify',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean' },
+            description: 'Optional flag to test connection before saving',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                oneOf: [
+                  { $ref: '#/components/schemas/PostgresCredentials' },
+                  { $ref: '#/components/schemas/SlackCredentials' },
+                ],
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Credentials saved successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Credentials for postgres saved successfully' },
+                    connector: { $ref: '#/components/schemas/ConnectorItem' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Validation or verification error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['connectors'],
+        summary: 'Delete connector credentials',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['postgres', 'slack'] },
+            description: 'Connector type identifier',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Credentials deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Credentials for postgres deleted successfully' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Connector credentials not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/connectors/{type}/test': {
+      post: {
+        tags: ['connectors'],
+        summary: 'Test connector connection with supplied or stored credentials',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['postgres', 'slack'] },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                oneOf: [
+                  { $ref: '#/components/schemas/PostgresCredentials' },
+                  { $ref: '#/components/schemas/SlackCredentials' },
+                ],
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Connection test passed',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Slack connection verified successfully' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Connection test failed',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/model-presets/defaults': {
+      get: {
+        tags: ['model-presets'],
+        summary: 'Get system-wide baseline hyperparameter defaults',
+        responses: {
+          200: {
+            description: 'Baseline model hyperparameter defaults',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    defaults: { type: 'object' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/model-presets': {
+      get: {
+        tags: ['model-presets'],
+        summary: 'List active model presets for authenticated user',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Optional filter by provider (e.g. anthropic, openai)',
+          },
+          {
+            name: 'model_id',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Optional filter by model ID',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'List of model presets with fully hydrated parameters',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    presets: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/ModelPresetItem' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      post: {
+        tags: ['model-presets'],
+        summary: 'Create a new model preset',
+        description: 'Stores only the sparse delta in database and returns full hydrated configuration.',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateModelPresetInput' },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Model preset created successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Model preset created successfully' },
+                    preset: { $ref: '#/components/schemas/ModelPresetItem' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Validation error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/model-presets/{id}': {
+      get: {
+        tags: ['model-presets'],
+        summary: 'Get single model preset by ID',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Model preset details with hydrated configuration',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    preset: { $ref: '#/components/schemas/ModelPresetItem' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Preset not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['model-presets'],
+        summary: 'Update model preset metadata and parameters',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/UpdateModelPresetInput' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Preset updated successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Model preset updated successfully' },
+                    preset: { $ref: '#/components/schemas/ModelPresetItem' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Preset not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['model-presets'],
+        summary: 'Delete or archive a model preset',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+          {
+            name: 'purge',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean' },
+            description: 'Permanently purge preset from database instead of soft-archiving',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Preset deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Model preset archived successfully' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'Preset not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -891,6 +1460,8 @@ export function createApp() {
   app.route('/auth', authRouter);
   app.route('/health', healthRouter);
   app.route('/tools', toolsRouter);
+  app.route('/connectors', connectorsRouter);
+  app.route('/model-presets', modelPresetsRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));

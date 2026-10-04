@@ -459,7 +459,154 @@ async function run() {
     logFail('RBAC Visibility (Admin)', err.message);
   }
 
-  // 21. Post-Test Cleanup Phase (Hard purge created test tools & restore profile)
+  // 21. Connector Credentials Vault Lifecycle (PUT, GET, DELETE)
+  let slackCredsStored = false;
+  try {
+    // 21a. Upsert Slack credentials
+    const putConnRes = await request('/connectors/slack/credentials', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ botToken: 'xoxb-live-e2e-token-5678' }),
+    });
+
+    if (
+      putConnRes.status === 200 &&
+      putConnRes.body.success === true &&
+      putConnRes.body.connector?.preview === 'xoxb-••••5678' &&
+      !JSON.stringify(putConnRes.body).includes('live-e2e-token')
+    ) {
+      slackCredsStored = true;
+      logPass('PUT /connectors/slack/credentials', `Preview stored: ${putConnRes.body.connector.preview}`);
+    } else {
+      logFail('PUT /connectors/slack/credentials', JSON.stringify(putConnRes.body));
+    }
+
+    // 21b. List connectors
+    const getConnRes = await request('/connectors', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const hasSlack = getConnRes.body.connectors?.some(
+      (c) => c.connector_type === 'slack' && c.preview === 'xoxb-••••5678',
+    );
+    if (getConnRes.status === 200 && hasSlack) {
+      logPass('GET /connectors', 'Configured connectors returned with preview');
+    } else {
+      logFail('GET /connectors', JSON.stringify(getConnRes.body));
+    }
+
+    // 21c. Delete connector credentials
+    const delConnRes = await request('/connectors/slack/credentials', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (delConnRes.status === 200 && delConnRes.body.success === true) {
+      slackCredsStored = false;
+      logPass('DELETE /connectors/slack/credentials', 'Credentials deleted cleanly');
+    } else {
+      logFail('DELETE /connectors/slack/credentials', JSON.stringify(delConnRes.body));
+    }
+  } catch (err) {
+    logFail('Connector Vault E2E', err.message);
+  }
+
+  // 22. Model Presets Lifecycle (GET defaults, POST, GET, PATCH, DELETE)
+  let createdPresetId = null;
+  try {
+    // 22a. Get baseline defaults
+    const defaultsRes = await request('/model-presets/defaults', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (
+      defaultsRes.status === 200 &&
+      defaultsRes.body.defaults?.temperature === 1.0 &&
+      defaultsRes.body.defaults?.topP === 1.0
+    ) {
+      logPass('GET /model-presets/defaults', 'Returned canonical model parameter defaults');
+    } else {
+      logFail('GET /model-presets/defaults', JSON.stringify(defaultsRes.body));
+    }
+
+    // 22b. Create preset with sparse overrides
+    const createPresetRes = await request('/model-presets', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        name: 'E2E Test Preset',
+        provider: 'anthropic',
+        model_id: 'claude-3-7-sonnet-latest',
+        params: {
+          temperature: 0.25,
+          maxOutputTokens: 2048,
+        },
+      }),
+    });
+
+    if (
+      createPresetRes.status === 201 &&
+      createPresetRes.body.preset?.id &&
+      createPresetRes.body.preset?.params?.temperature === 0.25 &&
+      createPresetRes.body.preset?.params?.topP === 1.0 // verified hydrated default
+    ) {
+      createdPresetId = createPresetRes.body.preset.id;
+      logPass('POST /model-presets', `Created preset ${createdPresetId} (hydrated topP: 1.0)`);
+    } else {
+      logFail('POST /model-presets', JSON.stringify(createPresetRes.body));
+    }
+
+    // 22c. List presets
+    const listPresetsRes = await request('/model-presets', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const foundPreset = listPresetsRes.body.presets?.find((p) => p.id === createdPresetId);
+    if (listPresetsRes.status === 200 && foundPreset) {
+      logPass('GET /model-presets', `Found preset in user collection with hydrated params`);
+    } else {
+      logFail('GET /model-presets', JSON.stringify(listPresetsRes.body));
+    }
+
+    // 22d. Update preset
+    if (createdPresetId) {
+      const patchPresetRes = await request(`/model-presets/${createdPresetId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          name: 'Updated E2E Preset',
+          params: {
+            temperature: 0.5,
+          },
+        }),
+      });
+
+      if (
+        patchPresetRes.status === 200 &&
+        patchPresetRes.body.preset?.name === 'Updated E2E Preset' &&
+        patchPresetRes.body.preset?.params?.temperature === 0.5 &&
+        patchPresetRes.body.preset?.params?.maxOutputTokens === 2048
+      ) {
+        logPass('PATCH /model-presets/:id', 'Successfully updated preset params with sparse merge');
+      } else {
+        logFail('PATCH /model-presets/:id', JSON.stringify(patchPresetRes.body));
+      }
+
+      // 22e. Delete preset
+      const delPresetRes = await request(`/model-presets/${createdPresetId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (delPresetRes.status === 200 && delPresetRes.body.success === true) {
+        logPass('DELETE /model-presets/:id', 'Successfully deleted test model preset');
+        createdPresetId = null;
+      } else {
+        logFail('DELETE /model-presets/:id', JSON.stringify(delPresetRes.body));
+      }
+    }
+  } catch (err) {
+    logFail('Model Presets E2E', err.message);
+  }
+
+  // 23. Post-Test Cleanup Phase (Hard purge created test tools, presets & restore profile)
   try {
     // Restore display_name to what it was before the test run
     await request('/auth/me', {
@@ -481,7 +628,19 @@ async function run() {
         headers: { Authorization: `Bearer ${accessToken}`, 'x-admin-key': ADMIN_KEY },
       });
     }
-    logPass('Post-Test Cleanup', 'Purged test tools and restored profile display_name');
+    if (createdPresetId) {
+      await request(`/model-presets/${createdPresetId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
+    if (slackCredsStored) {
+      await request('/connectors/slack/credentials', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
+    logPass('Post-Test Cleanup', 'Purged test tools, credentials, presets and restored profile display_name');
   } catch (err) {
     console.warn('⚠️ [CLEANUP WARNING]', err.message);
   }
