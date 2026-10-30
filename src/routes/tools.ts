@@ -24,6 +24,7 @@ function formatToolRow(row: any) {
 
   return {
     ...toolFields,
+    is_owner: row.is_owner !== undefined ? Boolean(row.is_owner) : true,
     current_version: row.current_version_id
       ? {
           id: row.current_version_id,
@@ -91,7 +92,7 @@ toolsRouter.post(
   '/',
   requireAuth,
   zValidator('json', CreateToolSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map((e) => e.message) }, 400);
     }
   }),
@@ -176,6 +177,7 @@ toolsRouter.get('/', requireAuth, async (c) => {
     SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
            t.is_public, t.allow_client_execution, t.connector_type,
            t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+           (t.owner_id = $1) as is_owner,
            tv.version_number as current_version_number,
            tv.code as current_code,
            tv.schema_json as current_schema_json,
@@ -211,7 +213,7 @@ toolsRouter.get('/:id/diff', requireAuth, async (c) => {
   }
 
   const result = await query(
-    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json, code_hash, created_at
+    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json, code_hash, test_results_json, created_at
      FROM public.tool_versions
      WHERE tool_id = $1 AND version_number IN ($2, $3)`,
     [toolId, fromVersion, toVersion],
@@ -302,6 +304,7 @@ toolsRouter.get('/:id', requireAuth, async (c) => {
     `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
             t.is_public, t.allow_client_execution, t.connector_type,
             t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+            (t.owner_id = $2) as is_owner,
             tv.version_number as current_version_number,
             tv.code as current_code,
             tv.schema_json as current_schema_json,
@@ -313,7 +316,7 @@ toolsRouter.get('/:id', requireAuth, async (c) => {
      LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
      WHERE t.id = $1 AND now() IS NOT NULL
      LIMIT 1`,
-    [toolId],
+    [toolId, user.id],
   );
 
   if (result.rows.length === 0) {
@@ -343,7 +346,7 @@ toolsRouter.post(
   '/:id/versions',
   requireAuth,
   zValidator('json', CreateToolVersionSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map((e) => e.message) }, 400);
     }
   }),
@@ -573,7 +576,7 @@ toolsRouter.patch(
   '/:id',
   requireAuth,
   zValidator('json', UpdateToolSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map((e) => e.message) }, 400);
     }
   }),
@@ -663,6 +666,7 @@ toolsRouter.patch(
       `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
               t.is_public, t.allow_client_execution, t.connector_type,
               t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+              (t.owner_id = $2) as is_owner,
               tv.version_number as current_version_number,
               tv.code as current_code,
               tv.schema_json as current_schema_json,
@@ -674,7 +678,7 @@ toolsRouter.patch(
        LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
        WHERE t.id = $1 AND now() IS NOT NULL
        LIMIT 1`,
-      [toolId],
+      [toolId, user.id],
     );
 
     return c.json(formatToolRow(updatedResult.rows[0]));

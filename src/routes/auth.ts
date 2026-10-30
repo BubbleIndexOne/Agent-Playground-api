@@ -23,7 +23,7 @@ export const authRouter = new Hono();
 authRouter.post(
   '/signup',
   zValidator('json', SignUpSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map(e => e.message) }, 400);
     }
   }),
@@ -77,7 +77,7 @@ authRouter.post(
 authRouter.post(
   '/login',
   zValidator('json', LoginSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map(e => e.message) }, 400);
     }
   }),
@@ -117,7 +117,7 @@ authRouter.post(
 authRouter.post(
   '/refresh',
   zValidator('json', RefreshTokenSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map(e => e.message) }, 400);
     }
   }),
@@ -202,7 +202,7 @@ authRouter.patch(
   '/me',
   requireAuth,
   zValidator('json', UpdateProfileSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map(e => e.message) }, 400);
     }
   }),
@@ -303,7 +303,7 @@ authRouter.delete(
   '/me',
   requireAuth,
   zValidator('json', DeleteAccountSchema, (result, c) => {
-    if (!result.success) {
+    if (!result.success && 'error' in result) {
       return c.json({ statusCode: 400, message: result.error.errors.map(e => e.message) }, 400);
     }
   }),
