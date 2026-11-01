@@ -7,6 +7,8 @@ import { healthRouter } from './routes/health';
 import { toolsRouter } from './routes/tools';
 import { connectorsRouter } from './routes/connectors';
 import { modelPresetsRouter } from './routes/modelPresets';
+import { credentialsRouter } from './routes/credentials';
+import { llmProxyRouter } from './routes/llmProxy';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -435,6 +437,26 @@ const openApiSpec = {
           model_id: { type: 'string', nullable: true, example: 'gpt-4o' },
           params: { type: 'object' },
           is_archived: { type: 'boolean', example: false },
+        },
+      },
+      ModelCredentialItem: {
+        type: 'object',
+        required: ['id', 'provider', 'key_version', 'created_at', 'updated_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid', example: 'd0b84df4-82a1-43ee-b14d-9a9be51ea972' },
+          provider: { type: 'string', enum: ['anthropic', 'openai', 'google'], example: 'anthropic' },
+          preview: { type: 'string', nullable: true, example: 'sk-ant-••••a3f9' },
+          key_version: { type: 'integer', example: 1 },
+          last_verified_at: { type: 'string', format: 'date-time', nullable: true, example: '2026-11-01T12:00:00.000Z' },
+          created_at: { type: 'string', format: 'date-time', example: '2026-11-01T11:00:00.000Z' },
+          updated_at: { type: 'string', format: 'date-time', example: '2026-11-01T12:00:00.000Z' },
+        },
+      },
+      SaveModelCredential: {
+        type: 'object',
+        required: ['apiKey'],
+        properties: {
+          apiKey: { type: 'string', example: 'sk-ant-api03-abcdef1234567890' },
         },
       },
     },
@@ -1444,6 +1466,199 @@ const openApiSpec = {
         },
       },
     },
+    '/credentials/models': {
+      get: {
+        tags: ['credentials'],
+        summary: 'List configured model provider credentials for user',
+        security: [{ bearer: [] }],
+        responses: {
+          200: {
+            description: 'List of configured model provider credentials with previews',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    credentials: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/ModelCredentialItem' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/credentials/models/{provider}': {
+      put: {
+        tags: ['credentials'],
+        summary: 'Save or update model provider API key in encrypted vault',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['anthropic', 'openai', 'google'] },
+          },
+          {
+            name: 'verify',
+            in: 'query',
+            required: false,
+            schema: { type: 'boolean', default: true },
+            description: 'Verify key against upstream provider before saving',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SaveModelCredential' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Credentials saved successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Credentials for anthropic saved successfully' },
+                    credential: { $ref: '#/components/schemas/ModelCredentialItem' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Invalid key or upstream verification failed',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['credentials'],
+        summary: 'Delete saved model provider API key from vault',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['anthropic', 'openai', 'google'] },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Credentials deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Credentials for anthropic deleted successfully' },
+                  },
+                },
+              },
+            },
+          },
+          404: {
+            description: 'No credentials found for provider',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/credentials/models/{provider}/test': {
+      post: {
+        tags: ['credentials'],
+        summary: 'Test saved model provider credentials against upstream API',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['anthropic', 'openai', 'google'] },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Credentials verified successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Anthropic API key verified successfully' },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: 'Verification failed or decryption error',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'No saved credentials found for provider',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/llm/{provider}/*': {
+      post: {
+        tags: ['llm-proxy'],
+        summary: 'Forward requests to LLM provider with just-in-time injected API key',
+        security: [{ bearer: [] }],
+        parameters: [
+          {
+            name: 'provider',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['anthropic', 'openai', 'google'] },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Streamed upstream response from model provider',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  description: 'Upstream raw JSON or event stream output',
+                },
+              },
+            },
+          },
+          403: {
+            description: 'Path not in provider allowlist',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'No credentials configured for provider',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -1462,6 +1677,8 @@ export function createApp() {
   app.route('/tools', toolsRouter);
   app.route('/connectors', connectorsRouter);
   app.route('/model-presets', modelPresetsRouter);
+  app.route('/credentials', credentialsRouter);
+  app.route('/llm', llmProxyRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));
