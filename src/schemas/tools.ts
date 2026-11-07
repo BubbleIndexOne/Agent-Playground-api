@@ -15,6 +15,18 @@ export const TOOL_STATUSES = [
 ] as const;
 export type ToolStatus = (typeof TOOL_STATUSES)[number];
 
+export const TOOL_VISIBILITIES = ['private', 'unlisted', 'public'] as const;
+export type ToolVisibility = (typeof TOOL_VISIBILITIES)[number];
+
+export const TOOL_MCP_HOSTING_STATUSES = [
+  'none',
+  'requested',
+  'in_review',
+  'approved',
+  'rejected',
+] as const;
+export type ToolMcpHostingStatus = (typeof TOOL_MCP_HOSTING_STATUSES)[number];
+
 // ─── Request Schemas ──────────────────────────────────────────────────────────
 
 export const CreateToolSchema = z
@@ -40,7 +52,9 @@ export const CreateToolSchema = z
       .optional()
       .nullable(),
     is_public: z.boolean().optional().default(false),
+    visibility: z.enum(TOOL_VISIBILITIES).optional(),
     allow_client_execution: z.boolean().optional().default(false),
+    tags: z.array(z.string().trim().max(30)).max(10).optional().default([]),
   })
   .superRefine((data, ctx) => {
     if (data.type === 'mcp' && (!data.connector_type || data.connector_type.trim() === '')) {
@@ -73,7 +87,9 @@ export const UpdateToolSchema = z.object({
     .optional()
     .nullable(),
   is_public: z.boolean().optional(),
+  visibility: z.enum(TOOL_VISIBILITIES).optional(),
   allow_client_execution: z.boolean().optional(),
+  tags: z.array(z.string().trim().max(30)).max(10).optional(),
   status: z.enum(TOOL_STATUSES).optional(),
 });
 

@@ -10,7 +10,16 @@ import { generateTestInputs } from '../utils/testInputGenerator';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatToolRow(row: any) {
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function formatToolRow(row: any, canViewCode = true) {
   const {
     current_version_number,
     current_code,
@@ -25,12 +34,13 @@ function formatToolRow(row: any) {
   return {
     ...toolFields,
     is_owner: row.is_owner !== undefined ? Boolean(row.is_owner) : true,
+    visibility: row.visibility || (row.is_public ? 'public' : 'private'),
     current_version: row.current_version_id
       ? {
           id: row.current_version_id,
           tool_id: row.id,
           version_number: current_version_number,
-          code: current_code,
+          code: canViewCode ? (current_code ?? null) : null,
           schema_json: current_schema_json,
           capabilities_json: current_capabilities_json,
           code_hash: current_code_hash,
@@ -53,16 +63,32 @@ async function checkIsAdmin(c: any): Promise<boolean> {
 }
 
 async function verifyToolAccess(toolId: string, user: { id: string }, isAdmin: boolean) {
-  const result = await query<{
-    id: string;
-    owner_id: string;
-    is_public: boolean;
-    status: string;
-    is_archived: boolean;
-  }>(
-    'SELECT id, owner_id, is_public, status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
-    [toolId],
-  );
+  let result;
+  try {
+    result = await query<{
+      id: string;
+      owner_id: string;
+      is_public: boolean;
+      visibility?: string;
+      allow_client_execution: boolean;
+      status: string;
+      is_archived: boolean;
+    }>(
+      'SELECT id, owner_id, is_public, visibility, allow_client_execution, status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
+      [toolId],
+    );
+  } catch {
+    result = await query<{
+      id: string;
+      owner_id: string;
+      is_public: boolean;
+      status: string;
+      is_archived: boolean;
+    }>(
+      'SELECT id, owner_id, is_public, status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
+      [toolId],
+    );
+  }
 
   if (result.rows.length === 0) {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
@@ -74,7 +100,9 @@ async function verifyToolAccess(toolId: string, user: { id: string }, isAdmin: b
   }
 
   const isOwner = tool.owner_id === user.id;
-  const isPublicVerified = tool.is_public && tool.status === 'verified';
+  const isPublicVerified =
+    (tool.is_public || tool.visibility === 'public') &&
+    (tool.status === 'verified' || tool.status === 'registered');
 
   if (!isOwner && !isAdmin && !isPublicVerified) {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
@@ -98,8 +126,14 @@ toolsRouter.post(
   }),
   async (c) => {
     const user = c.get('user');
-    const { name, description, type, connector_type, is_public, allow_client_execution } =
-      c.req.valid('json');
+    const {
+      name,
+      description,
+      type,
+      connector_type,
+      is_public = false,
+      allow_client_execution = false,
+    } = c.req.valid('json');
 
     const result = await query(
       `INSERT INTO public.tools (
@@ -173,26 +207,56 @@ toolsRouter.get('/', requireAuth, async (c) => {
     params.push(statusFilter);
   }
 
-  const sql = `
-    SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
-           t.is_public, t.allow_client_execution, t.connector_type,
-           t.current_version_id, t.is_archived, t.created_at, t.updated_at,
-           (t.owner_id = $1) as is_owner,
-           tv.version_number as current_version_number,
-           tv.code as current_code,
-           tv.schema_json as current_schema_json,
-           tv.capabilities_json as current_capabilities_json,
-           tv.code_hash as current_code_hash,
-           tv.test_results_json as current_test_results_json,
-           tv.created_at as current_version_created_at
-    FROM public.tools t
-    LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY t.updated_at DESC
-  `;
+  let result;
+  try {
+    const sql = `
+      SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+             t.is_public, t.allow_client_execution, t.connector_type,
+             t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+             t.visibility, t.slug, t.tags, t.install_count,
+             (t.owner_id = $1) as is_owner,
+             tv.version_number as current_version_number,
+             coalesce(ts.code, tv.code) as current_code,
+             tv.schema_json as current_schema_json,
+             tv.capabilities_json as current_capabilities_json,
+             tv.code_hash as current_code_hash,
+             tv.test_results_json as current_test_results_json,
+             tv.created_at as current_version_created_at
+      FROM public.tools t
+      LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+      LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY t.updated_at DESC
+    `;
+    result = await query(sql, params);
+  } catch {
+    const fallbackSql = `
+      SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+             t.is_public, t.allow_client_execution, t.connector_type,
+             t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+             (t.owner_id = $1) as is_owner,
+             tv.version_number as current_version_number,
+             tv.code as current_code,
+             tv.schema_json as current_schema_json,
+             tv.capabilities_json as current_capabilities_json,
+             tv.code_hash as current_code_hash,
+             tv.test_results_json as current_test_results_json,
+             tv.created_at as current_version_created_at
+      FROM public.tools t
+      LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY t.updated_at DESC
+    `;
+    result = await query(fallbackSql, params);
+  }
 
-  const result = await query(sql, params);
-  return c.json(result.rows.map(formatToolRow));
+  return c.json(
+    result.rows.map((row) => {
+      const isOwner = row.owner_id === user.id;
+      const canViewCode = isOwner || isAdmin || Boolean(row.allow_client_execution);
+      return formatToolRow(row, canViewCode);
+    }),
+  );
 });
 
 // GET /tools/:id/diff — Comparative version diff
@@ -201,7 +265,9 @@ toolsRouter.get('/:id/diff', requireAuth, async (c) => {
   const toolId = c.req.param('id');
   const isAdmin = await checkIsAdmin(c);
 
-  await verifyToolAccess(toolId, user, isAdmin);
+  const tool = await verifyToolAccess(toolId, user, isAdmin);
+  const isOwner = tool.owner_id === user.id;
+  const canViewCode = isOwner || isAdmin || Boolean(tool.allow_client_execution);
 
   const fromVersion = parseInt(c.req.query('from') || '', 10);
   const toVersion = parseInt(c.req.query('to') || '', 10);
@@ -212,12 +278,27 @@ toolsRouter.get('/:id/diff', requireAuth, async (c) => {
     });
   }
 
-  const result = await query(
-    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json, code_hash, test_results_json, created_at
-     FROM public.tool_versions
-     WHERE tool_id = $1 AND version_number IN ($2, $3)`,
-    [toolId, fromVersion, toVersion],
-  );
+  let result;
+  try {
+    result = await query(
+      `SELECT tv.id, tv.tool_id, tv.version_number,
+              CASE WHEN $4 = true THEN coalesce(ts.code, tv.code) ELSE NULL END as code,
+              tv.schema_json, tv.capabilities_json, tv.code_hash, tv.test_results_json, tv.created_at
+       FROM public.tool_versions tv
+       LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+       WHERE tv.tool_id = $1 AND tv.version_number IN ($2, $3)`,
+      [toolId, fromVersion, toVersion, canViewCode],
+    );
+  } catch {
+    result = await query(
+      `SELECT id, tool_id, version_number,
+              CASE WHEN $4 = true THEN code ELSE NULL END as code,
+              schema_json, capabilities_json, code_hash, test_results_json, created_at
+       FROM public.tool_versions
+       WHERE tool_id = $1 AND version_number IN ($2, $3)`,
+      [toolId, fromVersion, toVersion, canViewCode],
+    );
+  }
 
   const fromRow = result.rows.find((r) => r.version_number === fromVersion);
   const toRow = result.rows.find((r) => r.version_number === toVersion);
@@ -228,7 +309,9 @@ toolsRouter.get('/:id/diff', requireAuth, async (c) => {
     });
   }
 
-  const codeChanged = fromRow.code !== toRow.code;
+  const codeChanged =
+    fromRow.code !== toRow.code ||
+    (Boolean(fromRow.code_hash && toRow.code_hash) && fromRow.code_hash !== toRow.code_hash);
   const schemaChanged =
     JSON.stringify(fromRow.schema_json) !== JSON.stringify(toRow.schema_json);
 
@@ -249,16 +332,35 @@ toolsRouter.get('/:id/versions', requireAuth, async (c) => {
   const toolId = c.req.param('id');
   const isAdmin = await checkIsAdmin(c);
 
-  await verifyToolAccess(toolId, user, isAdmin);
+  const tool = await verifyToolAccess(toolId, user, isAdmin);
+  const isOwner = tool.owner_id === user.id;
+  const canViewCode = isOwner || isAdmin || Boolean(tool.allow_client_execution);
 
-  const result = await query(
-    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json,
-            code_hash, test_results_json, created_at
-     FROM public.tool_versions
-     WHERE tool_id = $1
-     ORDER BY version_number DESC`,
-    [toolId],
-  );
+  let result;
+  try {
+    result = await query(
+      `SELECT tv.id, tv.tool_id, tv.version_number,
+              CASE WHEN $2 = true THEN coalesce(ts.code, tv.code) ELSE NULL END as code,
+              tv.schema_json, tv.capabilities_json,
+              tv.code_hash, tv.test_results_json, tv.created_at
+       FROM public.tool_versions tv
+       LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+       WHERE tv.tool_id = $1
+       ORDER BY tv.version_number DESC`,
+      [toolId, canViewCode],
+    );
+  } catch {
+    result = await query(
+      `SELECT id, tool_id, version_number,
+              CASE WHEN $2 = true THEN code ELSE NULL END as code,
+              schema_json, capabilities_json,
+              code_hash, test_results_json, created_at
+       FROM public.tool_versions
+       WHERE tool_id = $1
+       ORDER BY version_number DESC`,
+      [toolId, canViewCode],
+    );
+  }
 
   return c.json(result.rows);
 });
@@ -274,16 +376,35 @@ toolsRouter.get('/:id/versions/:versionNumber', requireAuth, async (c) => {
     throw new HTTPException(400, { message: 'versionNumber must be a valid integer' });
   }
 
-  await verifyToolAccess(toolId, user, isAdmin);
+  const tool = await verifyToolAccess(toolId, user, isAdmin);
+  const isOwner = tool.owner_id === user.id;
+  const canViewCode = isOwner || isAdmin || Boolean(tool.allow_client_execution);
 
-  const result = await query(
-    `SELECT id, tool_id, version_number, code, schema_json, capabilities_json,
-            code_hash, test_results_json, created_at
-     FROM public.tool_versions
-     WHERE tool_id = $1 AND version_number = $2
-     LIMIT 1`,
-    [toolId, versionNumber],
-  );
+  let result;
+  try {
+    result = await query(
+      `SELECT tv.id, tv.tool_id, tv.version_number,
+              CASE WHEN $3 = true THEN coalesce(ts.code, tv.code) ELSE NULL END as code,
+              tv.schema_json, tv.capabilities_json,
+              tv.code_hash, tv.test_results_json, tv.created_at
+       FROM public.tool_versions tv
+       LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+       WHERE tv.tool_id = $1 AND tv.version_number = $2
+       LIMIT 1`,
+      [toolId, versionNumber, canViewCode],
+    );
+  } catch {
+    result = await query(
+      `SELECT id, tool_id, version_number,
+              CASE WHEN $3 = true THEN code ELSE NULL END as code,
+              schema_json, capabilities_json,
+              code_hash, test_results_json, created_at
+       FROM public.tool_versions
+       WHERE tool_id = $1 AND version_number = $2
+       LIMIT 1`,
+      [toolId, versionNumber, canViewCode],
+    );
+  }
 
   if (result.rows.length === 0) {
     throw new HTTPException(404, {
@@ -294,30 +415,54 @@ toolsRouter.get('/:id/versions/:versionNumber', requireAuth, async (c) => {
   return c.json(result.rows[0]);
 });
 
-// GET /tools/:id — Get tool by ID with its current version
+// GET /tools/:id - Get tool by ID with its current version
 toolsRouter.get('/:id', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
   const isAdmin = await checkIsAdmin(c);
 
-  const result = await query(
-    `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
-            t.is_public, t.allow_client_execution, t.connector_type,
-            t.current_version_id, t.is_archived, t.created_at, t.updated_at,
-            (t.owner_id = $2) as is_owner,
-            tv.version_number as current_version_number,
-            tv.code as current_code,
-            tv.schema_json as current_schema_json,
-            tv.capabilities_json as current_capabilities_json,
-            tv.code_hash as current_code_hash,
-            tv.test_results_json as current_test_results_json,
-            tv.created_at as current_version_created_at
-     FROM public.tools t
-     LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
-     WHERE t.id = $1 AND now() IS NOT NULL
-     LIMIT 1`,
-    [toolId, user.id],
-  );
+  let result;
+  try {
+    result = await query(
+      `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+              t.is_public, t.allow_client_execution, t.connector_type,
+              t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+              t.visibility, t.slug, t.tags, t.install_count,
+              (t.owner_id = $2) as is_owner,
+              tv.version_number as current_version_number,
+              coalesce(ts.code, tv.code) as current_code,
+              tv.schema_json as current_schema_json,
+              tv.capabilities_json as current_capabilities_json,
+              tv.code_hash as current_code_hash,
+              tv.test_results_json as current_test_results_json,
+              tv.created_at as current_version_created_at
+       FROM public.tools t
+       LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+       LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+       WHERE t.id = $1 AND now() IS NOT NULL
+       LIMIT 1`,
+      [toolId, user.id],
+    );
+  } catch {
+    result = await query(
+      `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+              t.is_public, t.allow_client_execution, t.connector_type,
+              t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+              (t.owner_id = $2) as is_owner,
+              tv.version_number as current_version_number,
+              tv.code as current_code,
+              tv.schema_json as current_schema_json,
+              tv.capabilities_json as current_capabilities_json,
+              tv.code_hash as current_code_hash,
+              tv.test_results_json as current_test_results_json,
+              tv.created_at as current_version_created_at
+       FROM public.tools t
+       LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+       WHERE t.id = $1 AND now() IS NOT NULL
+       LIMIT 1`,
+      [toolId, user.id],
+    );
+  }
 
   if (result.rows.length === 0) {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
@@ -330,15 +475,18 @@ toolsRouter.get('/:id', requireAuth, async (c) => {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
   }
 
-  // Access check: owner, admin, or verified public tool
+  // Access check: owner, admin, or verified/registered public tool
   const isOwner = row.owner_id === user.id;
-  const isPublicVerified = row.is_public && row.status === 'verified';
+  const isPublicVerified =
+    (row.is_public || row.visibility === 'public') &&
+    (row.status === 'verified' || row.status === 'registered');
 
   if (!isOwner && !isAdmin && !isPublicVerified) {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
   }
 
-  return c.json(formatToolRow(row));
+  const canViewCode = isOwner || isAdmin || Boolean(row.allow_client_execution);
+  return c.json(formatToolRow(row, canViewCode));
 });
 
 // POST /tools/:id/versions — Create a new version atomically
@@ -360,10 +508,9 @@ toolsRouter.post(
       id: string;
       owner_id: string;
       type: string;
-      status: string;
       is_archived: boolean;
     }>(
-      'SELECT id, owner_id, type, status, is_archived FROM public.tools WHERE id = $1 LIMIT 1',
+      'SELECT id, owner_id, type, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
       [toolId],
     );
 
@@ -373,10 +520,12 @@ toolsRouter.post(
 
     const tool = toolCheck.rows[0];
     if (tool.owner_id !== user.id) {
-      throw new HTTPException(403, { message: 'You do not have permission to modify this tool' });
+      throw new HTTPException(403, {
+        message: 'You do not have permission to modify this tool',
+      });
     }
 
-    // 2. Enforce type-specific code constraints
+    // 2. Client vs MCP tool validation
     if (tool.type === 'client' && (!code || code.trim() === '')) {
       throw new HTTPException(400, { message: 'code is required for client tools' });
     }
@@ -384,14 +533,13 @@ toolsRouter.post(
       throw new HTTPException(400, { message: 'code must not be provided for mcp tools' });
     }
 
-    // 3. Compute code_hash for client tools
+    // 3. Compute code_hash
     let codeHash: string | null = null;
-    if (code) {
+    if (code && code.trim() !== '') {
       codeHash = await computeCodeHash(code);
     }
 
     // 4+5. Atomically: reset MCP status to 'testing' AND create version in one transaction.
-    //      If the version insert fails, the status update is rolled back automatically.
     const rpcResult = await withTransaction(async (client) => {
       if (tool.type === 'mcp') {
         await client.query(
@@ -429,11 +577,18 @@ toolsRouter.post(
       throw new HTTPException(500, { message: 'Failed to create tool version' });
     }
 
-    return c.json(rpcResult.rows[0], 201);
+    const versionRow = rpcResult.rows[0];
+    return c.json(
+      {
+        ...versionRow,
+        code: code ?? null,
+      },
+      201,
+    );
   },
 );
 
-// POST /tools/:id/register — Automate tool verification and status transition
+// POST /tools/:id/register - Automate tool verification and status transition
 toolsRouter.post('/:id/register', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
@@ -445,11 +600,11 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
     owner_id: string;
     type: string;
     status: string;
+    current_version_id: string | null;
     is_archived: boolean;
-    current_version_id: string;
   }>(
-    'SELECT id, owner_id, type, status, is_archived, current_version_id FROM public.tools WHERE id = $1 LIMIT 1',
-    [toolId]
+    'SELECT id, owner_id, type, status, current_version_id, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
+    [toolId],
   );
 
   if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
@@ -461,24 +616,41 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
     throw new HTTPException(403, { message: 'You do not have permission to register this tool' });
   }
 
-  // Ensure it's in a state that can be registered
   if (!['draft', 'rejected', 'testing'].includes(tool.status)) {
-    throw new HTTPException(400, { message: `Tool is in ${tool.status} state and cannot be registered again` });
+    throw new HTTPException(400, {
+      message: `Tool is in ${tool.status} state and cannot be registered again`,
+    });
   }
 
   if (tool.type !== 'client') {
     throw new HTTPException(400, { message: 'Only client tools require sandbox registration' });
   }
 
-  const versionCheck = await query<{
-    id: string;
-    code: string;
-    schema_json: any;
-    capabilities_json: any;
-  }>(
-    'SELECT id, code, schema_json, capabilities_json FROM public.tool_versions WHERE id = $1 LIMIT 1',
-    [tool.current_version_id]
-  );
+  let versionCheck;
+  try {
+    versionCheck = await query<{
+      id: string;
+      code: string;
+      schema_json: any;
+      capabilities_json: any;
+    }>(
+      `SELECT tv.id, coalesce(ts.code, tv.code) as code, tv.schema_json, tv.capabilities_json
+       FROM public.tool_versions tv
+       LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+       WHERE tv.id = $1 LIMIT 1`,
+      [tool.current_version_id],
+    );
+  } catch {
+    versionCheck = await query<{
+      id: string;
+      code: string;
+      schema_json: any;
+      capabilities_json: any;
+    }>(
+      'SELECT id, code, schema_json, capabilities_json FROM public.tool_versions WHERE id = $1 LIMIT 1',
+      [tool.current_version_id],
+    );
+  }
 
   if (versionCheck.rows.length === 0) {
     throw new HTTPException(404, { message: 'Tool version not found' });
@@ -492,13 +664,19 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
   }
 
   // 2. Set to 'testing'
-  await query("UPDATE public.tools SET status = 'testing', updated_at = now() WHERE id = $1", [toolId]);
+  await query("UPDATE public.tools SET status = 'testing', updated_at = now() WHERE id = $1", [
+    toolId,
+  ]);
 
-  // Helper to fail registration
   const rejectRegistration = async (reason: string, details?: any) => {
     const testResults = { status: 'failed', reason, details, timestamp: new Date().toISOString() };
-    await query("UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2", [JSON.stringify(testResults), version.id]);
-    await query("UPDATE public.tools SET status = 'rejected', updated_at = now() WHERE id = $1", [toolId]);
+    await query('UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2', [
+      JSON.stringify(testResults),
+      version.id,
+    ]);
+    await query("UPDATE public.tools SET status = 'rejected', updated_at = now() WHERE id = $1", [
+      toolId,
+    ]);
     return c.json({ success: false, message: 'Registration failed', testResults }, 400);
   };
 
@@ -514,29 +692,35 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
     try {
       const body = await c.req.json().catch(() => ({}));
       args = body.inputs || generateTestInputs(schema_json);
-    } catch (e) {
+    } catch {
       args = generateTestInputs(schema_json);
     }
 
     // 5. Step Three: Sandboxed Execution & Capability Audit
     const startTime = Date.now();
     let sandboxResponse;
-    
+
     if (!env.SANDBOX) {
       return await rejectRegistration('Sandbox execution service not available');
     }
 
     try {
-      const reqBody = JSON.stringify({ code, args, capabilities: Array.isArray(capabilities_json) ? capabilities_json : [] });
+      const reqBody = JSON.stringify({
+        code,
+        args,
+        capabilities: Array.isArray(capabilities_json) ? capabilities_json : [],
+      });
       const sandboxKey = env.SANDBOX_KEY || 'agent-playground-internal-sandbox-key';
-      const res = await env.SANDBOX.fetch(new Request('http://sandbox/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-sandbox-key': sandboxKey,
-        },
-        body: reqBody,
-      }));
+      const res = await env.SANDBOX.fetch(
+        new Request('http://sandbox/execute', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-sandbox-key': sandboxKey,
+          },
+          body: reqBody,
+        }),
+      );
       sandboxResponse = await res.json();
     } catch (err: any) {
       return await rejectRegistration('Sandbox execution request failed', { error: err.message });
@@ -548,7 +732,7 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
       return await rejectRegistration('Sandbox execution failed', {
         error: sandboxResponse.error,
         observedCalls: sandboxResponse.observedCalls,
-        durationMs: duration
+        durationMs: duration,
       });
     }
 
@@ -559,13 +743,22 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
       observedCalls: sandboxResponse.observedCalls,
       durationMs: duration,
       inputsUsed: args,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
-    await query("UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2", [JSON.stringify(successResults), version.id]);
-    await query("UPDATE public.tools SET status = 'registered', updated_at = now() WHERE id = $1", [toolId]);
+    await query('UPDATE public.tool_versions SET test_results_json = $1 WHERE id = $2', [
+      JSON.stringify(successResults),
+      version.id,
+    ]);
+    await query("UPDATE public.tools SET status = 'registered', updated_at = now() WHERE id = $1", [
+      toolId,
+    ]);
 
-    return c.json({ success: true, message: 'Tool successfully registered', testResults: successResults });
+    return c.json({
+      success: true,
+      message: 'Tool successfully registered',
+      testResults: successResults,
+    });
   } catch (err: any) {
     return await rejectRegistration('Internal error during registration', { error: err.message });
   }
@@ -582,19 +775,24 @@ toolsRouter.patch(
   }),
   async (c) => {
     const user = c.get('user');
-    const toolId = c.req.param('id');
     const data = c.req.valid('json');
     const isAdmin = await checkIsAdmin(c);
+    const toolId = c.req.param('id');
 
     // 1. Fetch tool and verify ownership
     const toolCheck = await query<{
       id: string;
       owner_id: string;
+      name: string;
+      description: string | null;
       type: string;
       status: string;
+      is_public: boolean;
+      visibility?: string;
+      allow_client_execution: boolean;
       is_archived: boolean;
     }>(
-      'SELECT id, owner_id, type, status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
+      'SELECT id, owner_id, name, description, type, status, is_public, visibility, allow_client_execution, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
       [toolId],
     );
 
@@ -604,12 +802,14 @@ toolsRouter.patch(
 
     const tool = toolCheck.rows[0];
     if (tool.owner_id !== user.id && !isAdmin) {
-      throw new HTTPException(403, { message: 'You do not have permission to modify this tool' });
+      throw new HTTPException(403, {
+        message: 'You do not have permission to update this tool',
+      });
     }
 
-    // 2. Security checks for status changes
-    if (data.status && !isAdmin) {
-      if (data.status === 'verified') {
+    // 2. Validation of status updates
+    if (data.status !== undefined) {
+      if (data.status === 'verified' && !isAdmin) {
         if (tool.type === 'mcp') {
           throw new HTTPException(403, {
             message: 'MCP tools cannot be set to "verified" without administrator verification',
@@ -621,12 +821,32 @@ toolsRouter.patch(
       }
       if (['testing', 'registered', 'rejected'].includes(data.status)) {
         throw new HTTPException(403, {
-          message: 'Status cannot be manually set to testing, registered, or rejected. Please use the /register endpoint.',
+          message:
+            'Status cannot be manually set to testing, registered, or rejected. Please use the /register endpoint.',
         });
       }
     }
 
-    // 3. Build dynamic UPDATE query
+    // 3. Publishing gate checks
+    const willBePublic =
+      data.visibility === 'public' ||
+      (data.is_public === true && data.visibility === undefined);
+
+    if (willBePublic && !tool.is_public && tool.visibility !== 'public') {
+      if (tool.status !== 'registered' && tool.status !== 'verified') {
+        throw new HTTPException(400, {
+          message:
+            'Tool must be in "registered" status before it can be published to the marketplace',
+        });
+      }
+      if (!tool.description && !data.description) {
+        throw new HTTPException(400, {
+          message: 'Tool must have a non-empty description before publishing',
+        });
+      }
+    }
+
+    // 4. Build dynamic UPDATE query
     const fieldsToUpdate: string[] = [];
     const values: any[] = [];
     let paramIdx = 1;
@@ -639,13 +859,49 @@ toolsRouter.patch(
       fieldsToUpdate.push(`description = $${paramIdx++}`);
       values.push(data.description);
     }
-    if (data.is_public !== undefined) {
+    if (data.is_public !== undefined || data.visibility !== undefined) {
+      const resolvedVisibility =
+        data.visibility || (data.is_public ? 'public' : 'private');
+      const resolvedIsPublic = resolvedVisibility === 'public';
+
       fieldsToUpdate.push(`is_public = $${paramIdx++}`);
-      values.push(data.is_public);
+      values.push(resolvedIsPublic);
+
+      try {
+        fieldsToUpdate.push(`visibility = $${paramIdx++}`);
+        values.push(resolvedVisibility);
+      } catch {
+        // ignore if pre-011
+      }
+
+      if (resolvedIsPublic) {
+        try {
+          const profileRes = await query<{ handle: string | null }>(
+            'SELECT handle FROM public.profiles WHERE id = $1 LIMIT 1',
+            [tool.owner_id],
+          );
+          const handle = profileRes.rows[0]?.handle;
+          if (handle) {
+            const baseSlug = `${handle}/${slugify(data.name || tool.name)}`;
+            fieldsToUpdate.push(`slug = $${paramIdx++}`);
+            values.push(baseSlug);
+          }
+        } catch {
+          // ignore if column doesn't exist
+        }
+      }
     }
     if (data.allow_client_execution !== undefined) {
       fieldsToUpdate.push(`allow_client_execution = $${paramIdx++}`);
       values.push(data.allow_client_execution);
+    }
+    if (data.tags !== undefined) {
+      try {
+        fieldsToUpdate.push(`tags = $${paramIdx++}`);
+        values.push(data.tags);
+      } catch {
+        // ignore
+      }
     }
     if (data.status !== undefined) {
       fieldsToUpdate.push(`status = $${paramIdx++}`);
@@ -661,27 +917,53 @@ toolsRouter.patch(
       );
     }
 
-    // 4. Return updated tool with current version
-    const updatedResult = await query(
-      `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
-              t.is_public, t.allow_client_execution, t.connector_type,
-              t.current_version_id, t.is_archived, t.created_at, t.updated_at,
-              (t.owner_id = $2) as is_owner,
-              tv.version_number as current_version_number,
-              tv.code as current_code,
-              tv.schema_json as current_schema_json,
-              tv.capabilities_json as current_capabilities_json,
-              tv.code_hash as current_code_hash,
-              tv.test_results_json as current_test_results_json,
-              tv.created_at as current_version_created_at
-       FROM public.tools t
-       LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
-       WHERE t.id = $1 AND now() IS NOT NULL
-       LIMIT 1`,
-      [toolId, user.id],
-    );
+    // 5. Return updated tool with current version
+    let updatedResult;
+    try {
+      updatedResult = await query(
+        `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+                t.is_public, t.allow_client_execution, t.connector_type,
+                t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+                t.visibility, t.slug, t.tags, t.install_count,
+                (t.owner_id = $2) as is_owner,
+                tv.version_number as current_version_number,
+                coalesce(ts.code, tv.code) as current_code,
+                tv.schema_json as current_schema_json,
+                tv.capabilities_json as current_capabilities_json,
+                tv.code_hash as current_code_hash,
+                tv.test_results_json as current_test_results_json,
+                tv.created_at as current_version_created_at
+         FROM public.tools t
+         LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+         LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+         WHERE t.id = $1 AND now() IS NOT NULL
+         LIMIT 1`,
+        [toolId, user.id],
+      );
+    } catch {
+      updatedResult = await query(
+        `SELECT t.id, t.owner_id, t.name, t.description, t.type, t.status,
+                t.is_public, t.allow_client_execution, t.connector_type,
+                t.current_version_id, t.is_archived, t.created_at, t.updated_at,
+                (t.owner_id = $2) as is_owner,
+                tv.version_number as current_version_number,
+                tv.code as current_code,
+                tv.schema_json as current_schema_json,
+                tv.capabilities_json as current_capabilities_json,
+                tv.code_hash as current_code_hash,
+                tv.test_results_json as current_test_results_json,
+                tv.created_at as current_version_created_at
+         FROM public.tools t
+         LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+         WHERE t.id = $1 AND now() IS NOT NULL
+         LIMIT 1`,
+        [toolId, user.id],
+      );
+    }
 
-    return c.json(formatToolRow(updatedResult.rows[0]));
+    const canViewCode =
+      tool.owner_id === user.id || isAdmin || Boolean(tool.allow_client_execution);
+    return c.json(formatToolRow(updatedResult.rows[0], canViewCode));
   },
 );
 
@@ -697,7 +979,10 @@ toolsRouter.delete('/:id', requireAuth, async (c) => {
     id: string;
     owner_id: string;
     is_archived: boolean;
-  }>('SELECT id, owner_id, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1', [toolId]);
+  }>(
+    'SELECT id, owner_id, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
+    [toolId],
+  );
 
   if (toolCheck.rows.length === 0) {
     throw new HTTPException(404, { message: `Tool ${toolId} not found` });
@@ -726,3 +1011,132 @@ toolsRouter.delete('/:id', requireAuth, async (c) => {
   return c.json({ message: 'Tool archived successfully' });
 });
 
+
+/**
+ * POST /tools/:id/mcp-request
+ * Tool author submits a request to host the registered tool on the official MCP server.
+ * Gated to tool owners; requires status = 'registered'.
+ */
+toolsRouter.post('/:id/mcp-request', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+
+  const toolCheck = await query<{
+    id: string;
+    owner_id: string;
+    name: string;
+    status: string;
+    is_mcp_hosted?: boolean;
+    mcp_hosting_status?: string;
+    is_archived: boolean;
+  }>(
+    'SELECT id, owner_id, name, status, is_mcp_hosted, mcp_hosting_status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
+    [toolId],
+  );
+
+  if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  const tool = toolCheck.rows[0];
+  if (tool.owner_id !== user.id) {
+    throw new HTTPException(403, {
+      message: 'You do not have permission to request MCP hosting for this tool',
+    });
+  }
+
+  if (tool.status !== 'registered' && tool.status !== 'verified') {
+    throw new HTTPException(400, {
+      message: 'Tool must be tested and registered before requesting MCP server hosting',
+    });
+  }
+
+  if (tool.is_mcp_hosted) {
+    throw new HTTPException(400, { message: 'Tool is already hosted on the MCP server' });
+  }
+
+  if (tool.mcp_hosting_status === 'requested' || tool.mcp_hosting_status === 'in_review') {
+    throw new HTTPException(400, {
+      message: 'An MCP server hosting request is already pending for this tool',
+    });
+  }
+
+  const result = await query<{
+    id: string;
+    name: string;
+    mcp_hosting_status: string;
+    is_mcp_hosted: boolean;
+  }>(
+    `UPDATE public.tools
+     SET mcp_hosting_status = 'requested',
+         allow_client_execution = false,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING id, name, mcp_hosting_status, is_mcp_hosted`,
+    [toolId],
+  );
+
+  return c.json({
+    success: true,
+    message: 'Tool submitted for MCP server hosting evaluation by admin automations',
+    tool: result.rows[0],
+  });
+});
+
+/**
+ * DELETE /tools/:id/mcp-request
+ * Withdraws a pending MCP hosting request before admin promotion.
+ */
+toolsRouter.delete('/:id/mcp-request', requireAuth, async (c) => {
+  const user = c.get('user');
+  const toolId = c.req.param('id');
+
+  const toolCheck = await query<{
+    id: string;
+    owner_id: string;
+    name: string;
+    is_mcp_hosted?: boolean;
+    mcp_hosting_status?: string;
+    is_archived: boolean;
+  }>(
+    'SELECT id, owner_id, name, is_mcp_hosted, mcp_hosting_status, is_archived FROM public.tools WHERE id = $1 AND now() IS NOT NULL LIMIT 1',
+    [toolId],
+  );
+
+  if (toolCheck.rows.length === 0 || toolCheck.rows[0].is_archived) {
+    throw new HTTPException(404, { message: `Tool ${toolId} not found` });
+  }
+
+  const tool = toolCheck.rows[0];
+  if (tool.owner_id !== user.id) {
+    throw new HTTPException(403, {
+      message: 'You do not have permission to manage MCP hosting for this tool',
+    });
+  }
+
+  if (tool.is_mcp_hosted) {
+    throw new HTTPException(400, {
+      message: 'Active MCP-hosted tools cannot be unhosted directly; contact admin moderation.',
+    });
+  }
+
+  const result = await query<{
+    id: string;
+    name: string;
+    mcp_hosting_status: string;
+    is_mcp_hosted: boolean;
+  }>(
+    `UPDATE public.tools
+     SET mcp_hosting_status = 'none',
+         updated_at = now()
+     WHERE id = $1
+     RETURNING id, name, mcp_hosting_status, is_mcp_hosted`,
+    [toolId],
+  );
+
+  return c.json({
+    success: true,
+    message: 'MCP server hosting request cancelled',
+    tool: result.rows[0],
+  });
+});

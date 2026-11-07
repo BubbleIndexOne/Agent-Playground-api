@@ -9,6 +9,9 @@ import { connectorsRouter } from './routes/connectors';
 import { modelPresetsRouter } from './routes/modelPresets';
 import { credentialsRouter } from './routes/credentials';
 import { llmProxyRouter } from './routes/llmProxy';
+import { adminMcpRouter } from './routes/adminMcp';
+import { internalMcpRouter } from './routes/internalMcp';
+import { marketplaceRouter } from './routes/marketplace';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -457,6 +460,186 @@ const openApiSpec = {
         required: ['apiKey'],
         properties: {
           apiKey: { type: 'string', example: 'sk-ant-api03-abcdef1234567890' },
+        },
+      },
+      MarketplaceToolAuthor: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          handle: { type: 'string', nullable: true, example: 'alice' },
+          display_name: { type: 'string', example: 'Alice Developer' },
+        },
+      },
+      MarketplaceToolSummary: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string', example: 'Web Scraper' },
+          description: { type: 'string', nullable: true, example: 'Extracts clean data from HTML pages' },
+          slug: { type: 'string', nullable: true, example: 'alice/web-scraper' },
+          type: { type: 'string', enum: ['client', 'mcp'] },
+          connector_type: { type: 'string', nullable: true },
+          tags: { type: 'array', items: { type: 'string' } },
+          install_count: { type: 'integer', example: 42 },
+          is_installed: { type: 'boolean', example: false },
+          allow_client_execution: { type: 'boolean', example: true },
+          is_mcp_hosted: { type: 'boolean', example: false },
+          mcp_hosting_status: { type: 'string', enum: ['none', 'requested', 'in_review', 'approved', 'rejected'] },
+          author: { $ref: '#/components/schemas/MarketplaceToolAuthor' },
+          requires_connector: { type: 'string', nullable: true },
+          has_connector_configured: { type: 'boolean', example: false },
+          capabilities: { type: 'array', items: { type: 'string' } },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      MarketplaceToolsResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          tools: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/MarketplaceToolSummary' },
+          },
+          pagination: {
+            type: 'object',
+            properties: {
+              limit: { type: 'integer', example: 20 },
+              has_more: { type: 'boolean', example: false },
+              next_cursor: { type: 'string', nullable: true },
+            },
+          },
+        },
+      },
+      MarketplaceToolDetail: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          name: { type: 'string', example: 'Web Scraper' },
+          description: { type: 'string', nullable: true },
+          slug: { type: 'string', nullable: true },
+          type: { type: 'string' },
+          connector_type: { type: 'string', nullable: true },
+          tags: { type: 'array', items: { type: 'string' } },
+          install_count: { type: 'integer' },
+          is_installed: { type: 'boolean' },
+          pinned_version_number: { type: 'integer', nullable: true },
+          allow_client_execution: { type: 'boolean' },
+          is_mcp_hosted: { type: 'boolean' },
+          mcp_hosting_status: { type: 'string' },
+          author: { $ref: '#/components/schemas/MarketplaceToolAuthor' },
+          requires_connector: { type: 'string', nullable: true },
+          has_connector_configured: { type: 'boolean' },
+          current_version: {
+            type: 'object',
+            properties: {
+              version_number: { type: 'integer' },
+              schema_json: { type: 'object' },
+              capabilities_json: { type: 'array', items: { type: 'string' } },
+              code_hash: { type: 'string' },
+              test_results_json: { type: 'object', nullable: true },
+            },
+          },
+          versions: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                version_number: { type: 'integer' },
+                schema_json: { type: 'object' },
+                capabilities_json: { type: 'array', items: { type: 'string' } },
+                code_hash: { type: 'string' },
+                created_at: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+        },
+      },
+      InstallToolInput: {
+        type: 'object',
+        properties: {
+          version_id: { type: 'string', format: 'uuid' },
+        },
+      },
+      ToolReportInput: {
+        type: 'object',
+        required: ['reason'],
+        properties: {
+          reason: { type: 'string', enum: ['malicious', 'broken', 'spam', 'other'] },
+          details: { type: 'string', maxLength: 1000 },
+        },
+      },
+      ToolMcpRequestResponse: {
+        type: 'object',
+        required: ['success', 'message', 'tool'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Tool submitted for MCP server hosting evaluation' },
+          tool: { type: 'object' },
+        },
+      },
+      ToolInstallResponse: {
+        type: 'object',
+        required: ['success', 'message', 'install'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Tool installed successfully' },
+          install: { type: 'object' },
+        },
+      },
+      ToolUninstallResponse: {
+        type: 'object',
+        required: ['success', 'message'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Tool successfully uninstalled' },
+        },
+      },
+      ToolForkResponse: {
+        type: 'object',
+        required: ['success', 'message', 'tool'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Tool successfully forked' },
+          tool: { type: 'object' },
+        },
+      },
+      ToolReportResponse: {
+        type: 'object',
+        required: ['success', 'reported', 'status', 'message'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          reported: { type: 'boolean', example: true },
+          status: { type: 'string', example: 'received' },
+          message: { type: 'string', example: 'Report submitted successfully' },
+        },
+      },
+      AdminMcpQueueResponse: {
+        type: 'object',
+        required: ['success', 'count', 'queue'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          count: { type: 'integer', example: 1 },
+          queue: { type: 'array', items: { type: 'object' } },
+        },
+      },
+      AdminMcpActionResponse: {
+        type: 'object',
+        required: ['success', 'message', 'tool'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Tool promoted to MCP server' },
+          tool: { type: 'object' },
+        },
+      },
+      InternalMcpToolsResponse: {
+        type: 'object',
+        required: ['success', 'count', 'tools'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          count: { type: 'integer', example: 1 },
+          tools: { type: 'array', items: { type: 'object' } },
         },
       },
     },
@@ -1659,6 +1842,280 @@ const openApiSpec = {
         },
       },
     },
+    '/tools/{id}/mcp-request': {
+      post: {
+        tags: ['tools'],
+        summary: 'Submit a tool for MCP server hosting evaluation by admin automations',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Tool submitted for MCP server hosting',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolMcpRequestResponse' } } },
+          },
+          400: {
+            description: 'Invalid tool state or already requested',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Permission denied',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['tools'],
+        summary: 'Withdraw a pending MCP server hosting request',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Request withdrawn',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolMcpRequestResponse' } } },
+          },
+          400: {
+            description: 'Tool already active on MCP server',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Permission denied',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/marketplace/tools': {
+      get: {
+        tags: ['marketplace'],
+        summary: 'List and search public community tools (never exposes source code)',
+        parameters: [
+          { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Full-text search query' },
+          { name: 'type', in: 'query', schema: { type: 'string', enum: ['client', 'mcp'] } },
+          { name: 'connector', in: 'query', schema: { type: 'string' } },
+          { name: 'tag', in: 'query', schema: { type: 'string' } },
+          { name: 'hosting_tier', in: 'query', schema: { type: 'string', enum: ['client', 'mcp'] } },
+          { name: 'sort', in: 'query', schema: { type: 'string', enum: ['popular', 'recent', 'name'], default: 'popular' } },
+          { name: 'cursor', in: 'query', schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
+        ],
+        responses: {
+          200: {
+            description: 'List of marketplace tools',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/MarketplaceToolsResponse' } } },
+          },
+        },
+      },
+    },
+    '/marketplace/tools/{idOrSlug}': {
+      get: {
+        tags: ['marketplace'],
+        summary: 'Get marketplace tool details and version metadata by UUID or author/slug',
+        parameters: [{ name: 'idOrSlug', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: {
+            description: 'Tool details',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/MarketplaceToolDetail' } } },
+          },
+          404: {
+            description: 'Tool not found in marketplace',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/marketplace/tools/{id}/install': {
+      post: {
+        tags: ['marketplace'],
+        summary: 'Install and pin a tool to caller workspace',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: {
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/InstallToolInput' } } },
+        },
+        responses: {
+          200: {
+            description: 'Tool installed successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolInstallResponse' } } },
+          },
+          400: {
+            description: 'Tool has no registered version',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['marketplace'],
+        summary: 'Uninstall a tool from caller workspace',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Tool uninstalled successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolUninstallResponse' } } },
+          },
+          404: {
+            description: 'Tool not installed in account',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/marketplace/tools/{id}/fork': {
+      post: {
+        tags: ['marketplace'],
+        summary: 'Fork an open-source client tool into caller workspace',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          201: {
+            description: 'Tool successfully forked',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolForkResponse' } } },
+          },
+          400: {
+            description: 'Source code not available for forking',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          403: {
+            description: 'Protected tools cannot be forked',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/marketplace/tools/{id}/report': {
+      post: {
+        tags: ['marketplace'],
+        summary: 'Report a broken or malicious tool (triggers auto-hold at threshold)',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolReportInput' } } },
+        },
+        responses: {
+          200: {
+            description: 'Report filed successfully',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ToolReportResponse' } } },
+          },
+          400: {
+            description: 'Invalid input',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          409: {
+            description: 'Open report already pending for this tool',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/admin/mcp/queue': {
+      get: {
+        tags: ['admin-mcp'],
+        summary: 'Get queue of tools awaiting MCP promotion (Admin Key Only)',
+        security: [{ adminKey: [] }],
+        responses: {
+          200: {
+            description: 'MCP promotion review queue',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AdminMcpQueueResponse' } } },
+          },
+          401: {
+            description: 'Valid x-admin-key header required',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/admin/mcp/{id}/promote': {
+      post: {
+        tags: ['admin-mcp'],
+        summary: 'Promote a tool to the MCP server hosting pool (Admin Key Only)',
+        security: [{ adminKey: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Tool promoted to MCP server',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AdminMcpActionResponse' } } },
+          },
+          401: {
+            description: 'Valid x-admin-key header required',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/admin/mcp/{id}/reject': {
+      post: {
+        tags: ['admin-mcp'],
+        summary: 'Reject an MCP server hosting request (Admin Key Only)',
+        security: [{ adminKey: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { reason: { type: 'string', example: 'Failed security checks' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Tool hosting request rejected',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AdminMcpActionResponse' } } },
+          },
+          401: {
+            description: 'Valid x-admin-key header required',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Tool not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/internal/mcp/tools': {
+      get: {
+        tags: ['internal-mcp'],
+        summary: 'Sync promoted tools for Agent-Playground-MCP daemon',
+        security: [{ adminKey: [] }],
+        responses: {
+          200: {
+            description: 'List of active MCP hosted tools with source code',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/InternalMcpToolsResponse' } } },
+          },
+          401: {
+            description: 'Internal secret or admin key required',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -1679,6 +2136,9 @@ export function createApp() {
   app.route('/model-presets', modelPresetsRouter);
   app.route('/credentials', credentialsRouter);
   app.route('/llm', llmProxyRouter);
+  app.route('/admin/mcp', adminMcpRouter);
+  app.route('/internal/mcp', internalMcpRouter);
+  app.route('/marketplace', marketplaceRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));
