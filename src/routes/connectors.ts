@@ -8,19 +8,27 @@ import {
   SUPPORTED_CONNECTOR_TYPES,
   SupportedConnectorType,
 } from '../schemas/connectors';
-import { encryptVaultPayload, decryptVaultPayload } from '../utils/vault';
+import { encryptVaultPayload, decryptVaultPayload, DEFAULT_DEV_VAULT_KEY } from '../utils/vault';
 
 export const connectorsRouter = new Hono();
 
 function getVaultKey(env: any): string | undefined {
-  return (
+  const key =
     env?.VAULT_ENCRYPTION_KEY ||
     env?.PROD_VAULT_ENCRYPTION_KEY ||
     env?.DEV_VAULT_ENCRYPTION_KEY ||
     process.env.VAULT_ENCRYPTION_KEY ||
     process.env.PROD_VAULT_ENCRYPTION_KEY ||
-    process.env.DEV_VAULT_ENCRYPTION_KEY
-  );
+    process.env.DEV_VAULT_ENCRYPTION_KEY;
+
+  if (key) return key;
+
+  // In development environment, fall back to default dev key if unset
+  if (env?.ENVIRONMENT === 'dev' || process.env.ENVIRONMENT === 'dev') {
+    return DEFAULT_DEV_VAULT_KEY;
+  }
+
+  return undefined;
 }
 
 // Helper to verify connection for supported connectors
