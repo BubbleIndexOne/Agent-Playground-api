@@ -58,6 +58,20 @@ describe('application factory', () => {
       '/model-presets/defaults',
       '/model-presets',
       '/model-presets/{id}',
+      '/credentials/models',
+      '/credentials/models/{provider}',
+      '/credentials/models/{provider}/test',
+      '/llm/{provider}/*',
+      '/tools/{id}/mcp-request',
+      '/marketplace/tools',
+      '/marketplace/tools/{idOrSlug}',
+      '/marketplace/tools/{id}/install',
+      '/marketplace/tools/{id}/fork',
+      '/marketplace/tools/{id}/report',
+      '/admin/mcp/queue',
+      '/admin/mcp/{id}/promote',
+      '/admin/mcp/{id}/reject',
+      '/internal/mcp/tools',
     ]);
     expect(spec.paths['/auth/me'].get.security).toEqual([{ bearer: [] }]);
     expect(spec.paths['/auth/signup'].post.responses).toMatchObject({

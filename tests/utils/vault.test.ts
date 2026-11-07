@@ -72,4 +72,38 @@ describe('Vault Crypto Utility (AES-GCM)', () => {
     const invalidKey = btoa('too-short-key');
     await expect(encryptVaultPayload('hello', invalidKey)).rejects.toThrow(/Invalid vault master key length/);
   });
+
+  describe('Row-Bound Authenticated Additional Data (AAD)', () => {
+    it('successfully encrypts and decrypts with matching AAD context', async () => {
+      const key = generateVaultMasterKey();
+      const payload = 'sk-ant-api03-secret-key-123';
+      const aad = 'user-uuid-1:model_provider:anthropic';
+
+      const encrypted = await encryptVaultPayload(payload, key, aad);
+      const decrypted = await decryptVaultPayload(encrypted, key, aad);
+
+      expect(decrypted).toBe(payload);
+    });
+
+    it('fails to decrypt if AAD does not match (transposition defense)', async () => {
+      const key = generateVaultMasterKey();
+      const payload = 'sk-ant-api03-secret-key-123';
+      const user1Aad = 'user-uuid-1:model_provider:anthropic';
+      const user2Aad = 'user-uuid-2:model_provider:anthropic';
+
+      const encrypted = await encryptVaultPayload(payload, key, user1Aad);
+
+      await expect(decryptVaultPayload(encrypted, key, user2Aad)).rejects.toThrow();
+    });
+
+    it('fails to decrypt if AAD is omitted when payload was encrypted with AAD', async () => {
+      const key = generateVaultMasterKey();
+      const payload = 'sk-proj-secret-key-456';
+      const aad = 'user-uuid-1:model_provider:openai';
+
+      const encrypted = await encryptVaultPayload(payload, key, aad);
+
+      await expect(decryptVaultPayload(encrypted, key)).rejects.toThrow();
+    });
+  });
 });

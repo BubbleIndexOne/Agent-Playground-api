@@ -61,15 +61,25 @@ async function importVaultKey(keyB64: string, usage: 'encrypt' | 'decrypt'): Pro
 
 /**
  * Encrypts a plaintext string using AES-GCM (12-byte IV).
+ * Optional additionalData (AAD) binds encryption to a specific context (e.g. userId:kind:provider).
  * Returns serialized format: `${ivBase64}:${ciphertextBase64}`
  */
-export async function encryptVaultPayload(plaintext: string, masterKeyB64?: string): Promise<string> {
+export async function encryptVaultPayload(
+  plaintext: string,
+  masterKeyB64?: string,
+  aad?: string | Uint8Array
+): Promise<string> {
   const key = await importVaultKey(masterKeyB64 as string, 'encrypt');
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encodedPlaintext = new TextEncoder().encode(plaintext);
 
+  const algorithm: AesGcmParams = { name: 'AES-GCM', iv };
+  if (aad) {
+    algorithm.additionalData = typeof aad === 'string' ? new TextEncoder().encode(aad) : aad;
+  }
+
   const cipherBuffer = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    algorithm,
     key,
     encodedPlaintext
   );
@@ -82,8 +92,13 @@ export async function encryptVaultPayload(plaintext: string, masterKeyB64?: stri
 
 /**
  * Decrypts an encrypted payload formatted as `${ivBase64}:${ciphertextBase64}`.
+ * If AAD was used during encryption, the exact same AAD must be provided or decryption fails.
  */
-export async function decryptVaultPayload(encryptedPayload: string, masterKeyB64?: string): Promise<string> {
+export async function decryptVaultPayload(
+  encryptedPayload: string,
+  masterKeyB64?: string,
+  aad?: string | Uint8Array
+): Promise<string> {
   if (!encryptedPayload || !encryptedPayload.includes(':')) {
     throw new Error('Invalid encrypted payload format: expected "iv:ciphertext"');
   }
@@ -97,8 +112,13 @@ export async function decryptVaultPayload(encryptedPayload: string, masterKeyB64
   const iv = base64ToUint8Array(ivB64);
   const cipherBytes = base64ToUint8Array(cipherB64);
 
+  const algorithm: AesGcmParams = { name: 'AES-GCM', iv };
+  if (aad) {
+    algorithm.additionalData = typeof aad === 'string' ? new TextEncoder().encode(aad) : aad;
+  }
+
   const plainBuffer = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    algorithm,
     key,
     cipherBytes
   );

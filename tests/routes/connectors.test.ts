@@ -265,6 +265,24 @@ describe('Connectors Routes (/connectors)', () => {
       const body = await res.json();
       expect(body.success).toBe(true);
       expect(body.message).toContain('deleted successfully');
+      expect(dbMocks.query).toHaveBeenCalledWith(
+        expect.stringContaining("(kind = 'connector' OR kind IS NULL)"),
+        ['user-uuid-1111', 'postgres'],
+      );
+    });
+
+    it('returns a fixed, non-sensitive error message when deletion fails', async () => {
+      dbMocks.query.mockRejectedValueOnce(new Error('FATAL: connection pool exhausted with secret context'));
+
+      const res = await app.request('/connectors/postgres/credentials', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer valid.jwt.token' },
+      });
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.message).toBe('Database error deleting credentials');
+      expect(body.message).not.toContain('secret context');
     });
   });
 

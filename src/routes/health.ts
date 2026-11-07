@@ -31,8 +31,13 @@ async function checkDb() {
 // GET /health
 healthRouter.get('/', async (c) => {
   const detail = await checkDb();
+  const overallStatus =
+    detail.status === HEALTH_CONSTANTS.STATUS_CONNECTED
+      ? HEALTH_CONSTANTS.STATUS_OK
+      : HEALTH_CONSTANTS.STATUS_UNAVAILABLE;
+
   return c.json({
-    status: HEALTH_CONSTANTS.STATUS_OK,
+    status: overallStatus,
     timestamp: new Date().toISOString(),
     databases: [detail],
   });

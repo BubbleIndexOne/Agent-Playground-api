@@ -8,19 +8,27 @@ import {
   SUPPORTED_CONNECTOR_TYPES,
   SupportedConnectorType,
 } from '../schemas/connectors';
-import { encryptVaultPayload, decryptVaultPayload } from '../utils/vault';
+import { encryptVaultPayload, decryptVaultPayload, DEFAULT_DEV_VAULT_KEY } from '../utils/vault';
 
 export const connectorsRouter = new Hono();
 
 function getVaultKey(env: any): string | undefined {
-  return (
+  const key =
     env?.VAULT_ENCRYPTION_KEY ||
     env?.PROD_VAULT_ENCRYPTION_KEY ||
     env?.DEV_VAULT_ENCRYPTION_KEY ||
     process.env.VAULT_ENCRYPTION_KEY ||
     process.env.PROD_VAULT_ENCRYPTION_KEY ||
-    process.env.DEV_VAULT_ENCRYPTION_KEY
-  );
+    process.env.DEV_VAULT_ENCRYPTION_KEY;
+
+  if (key) return key;
+
+  // In development environment, fall back to default dev key if unset
+  if (env?.ENVIRONMENT === 'dev' || process.env.ENVIRONMENT === 'dev') {
+    return DEFAULT_DEV_VAULT_KEY;
+  }
+
+  return undefined;
 }
 
 // Helper to verify connection for supported connectors
@@ -72,25 +80,52 @@ async function testConnectorConnection(
 connectorsRouter.get('/', requireAuth, async (c) => {
   const user = c.get('user');
 
-  const result = await query<{
-    id: string;
-    connector_type: string;
-    preview: string | null;
-    key_version: number;
-    created_at: string;
-    updated_at: string;
-  }>(
-    `SELECT id, connector_type, preview, key_version, created_at, updated_at
-     FROM public.user_connector_credentials
-     WHERE user_id = $1
-     ORDER BY connector_type ASC`,
-    [user.id],
-  );
+  try {
+    let result;
+    try {
+      result = await query<{
+        id: string;
+        connector_type: string;
+        preview: string | null;
+        key_version: number;
+        created_at: string;
+        updated_at: string;
+      }>(
+        `SELECT id, connector_type, preview, key_version, created_at, updated_at
+         FROM public.user_connector_credentials
+         WHERE user_id = $1 AND (kind = 'connector' OR kind IS NULL)
+         ORDER BY connector_type ASC`,
+        [user.id],
+      );
+    } catch (dbErr: any) {
+      if (dbErr.code === '42703' || dbErr.code === '42P10') {
+        result = await query<{
+          id: string;
+          connector_type: string;
+          preview: string | null;
+          key_version: number;
+          created_at: string;
+          updated_at: string;
+        }>(
+          `SELECT id, connector_type, preview, key_version, created_at, updated_at
+           FROM public.user_connector_credentials
+           WHERE user_id = $1
+           ORDER BY connector_type ASC`,
+          [user.id],
+        );
+      } else {
+        throw dbErr;
+      }
+    }
 
-  return c.json({
-    success: true,
-    connectors: result.rows,
-  });
+    return c.json({
+      success: true,
+      connectors: result.rows,
+    });
+  } catch (err: any) {
+    console.error('[Connectors GET error]', err);
+    throw new HTTPException(500, { message: 'Database error retrieving connectors' });
+  }
 });
 
 /**
@@ -138,29 +173,112 @@ connectorsRouter.put('/:type/credentials', requireAuth, async (c) => {
   if (!vaultKey) {
     throw new HTTPException(500, { message: 'Vault encryption key is not configured' });
   }
-  const encryptedPayload = await encryptVaultPayload(JSON.stringify(validatedData), vaultKey);
+
+  let encryptedPayload: string;
+  try {
+    encryptedPayload = await encryptVaultPayload(JSON.stringify(validatedData), vaultKey);
+  } catch (err: any) {
+    console.error('[Connectors Vault Encryption Error]', err);
+    throw new HTTPException(500, { message: 'Vault encryption failed' });
+  }
 
   // Upsert into database
-  const result = await query<{
-    id: string;
-    connector_type: string;
-    preview: string;
-    key_version: number;
-    created_at: string;
-    updated_at: string;
-  }>(
-    `INSERT INTO public.user_connector_credentials 
-       (user_id, connector_type, encrypted_payload, preview, key_version, updated_at)
-     VALUES ($1, $2, $3, $4, 1, now())
-     ON CONFLICT (user_id, connector_type)
-     DO UPDATE SET
-       encrypted_payload = excluded.encrypted_payload,
-       preview = excluded.preview,
-       key_version = excluded.key_version,
-       updated_at = now()
-     RETURNING id, connector_type, preview, key_version, created_at, updated_at`,
-    [user.id, typeParam, encryptedPayload, preview],
-  );
+  let result;
+  try {
+    // 1. Try with (user_id, kind, connector_type) matching migration 010+ schema
+    result = await query<{
+      id: string;
+      connector_type: string;
+      preview: string;
+      key_version: number;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `INSERT INTO public.user_connector_credentials 
+         (user_id, kind, connector_type, encrypted_payload, preview, key_version, updated_at)
+       VALUES ($1, 'connector', $2, $3, $4, 1, now())
+       ON CONFLICT (user_id, kind, connector_type)
+       DO UPDATE SET
+         encrypted_payload = excluded.encrypted_payload,
+         preview = excluded.preview,
+         key_version = excluded.key_version,
+         updated_at = now()
+       RETURNING id, connector_type, preview, key_version, created_at, updated_at`,
+      [user.id, typeParam, encryptedPayload, preview],
+    );
+  } catch (err1: any) {
+    if (err1.code === '42703' || err1.code === '42P10') {
+      try {
+        // 2. Fallback to (user_id, connector_type) matching pre-010 schema
+        result = await query<{
+          id: string;
+          connector_type: string;
+          preview: string;
+          key_version: number;
+          created_at: string;
+          updated_at: string;
+        }>(
+          `INSERT INTO public.user_connector_credentials 
+             (user_id, connector_type, encrypted_payload, preview, key_version, updated_at)
+           VALUES ($1, $2, $3, $4, 1, now())
+           ON CONFLICT (user_id, connector_type)
+           DO UPDATE SET
+             encrypted_payload = excluded.encrypted_payload,
+             preview = excluded.preview,
+             key_version = excluded.key_version,
+             updated_at = now()
+           RETURNING id, connector_type, preview, key_version, created_at, updated_at`,
+          [user.id, typeParam, encryptedPayload, preview],
+        );
+      } catch (err2: any) {
+        try {
+          // 3. Resilient fallback: SELECT then UPDATE or INSERT (works regardless of missing unique constraint)
+          const existing = await query<{ id: string }>(
+            `SELECT id FROM public.user_connector_credentials WHERE user_id = $1 AND connector_type = $2 LIMIT 1`,
+            [user.id, typeParam],
+          );
+
+          if (existing.rows.length > 0) {
+            result = await query<{
+              id: string;
+              connector_type: string;
+              preview: string;
+              key_version: number;
+              created_at: string;
+              updated_at: string;
+            }>(
+              `UPDATE public.user_connector_credentials
+               SET encrypted_payload = $3, preview = $4, key_version = 1, updated_at = now()
+               WHERE user_id = $1 AND connector_type = $2
+               RETURNING id, connector_type, preview, key_version, created_at, updated_at`,
+              [user.id, typeParam, encryptedPayload, preview],
+            );
+          } else {
+            result = await query<{
+              id: string;
+              connector_type: string;
+              preview: string;
+              key_version: number;
+              created_at: string;
+              updated_at: string;
+            }>(
+              `INSERT INTO public.user_connector_credentials
+                 (user_id, connector_type, encrypted_payload, preview, key_version, updated_at)
+               VALUES ($1, $2, $3, $4, 1, now())
+               RETURNING id, connector_type, preview, key_version, created_at, updated_at`,
+              [user.id, typeParam, encryptedPayload, preview],
+            );
+          }
+        } catch (finalErr: any) {
+          console.error('[Connectors DB Error]', finalErr);
+          throw new HTTPException(500, { message: 'Database error saving credentials' });
+        }
+      }
+    } else {
+      console.error('[Connectors DB Error]', err1);
+      throw new HTTPException(500, { message: 'Database error saving credentials' });
+    }
+  }
 
   const row = result.rows[0];
 
@@ -186,23 +304,29 @@ connectorsRouter.delete('/:type/credentials', requireAuth, async (c) => {
   const user = c.get('user');
   const typeParam = c.req.param('type');
 
-  const result = await query<{ id: string; connector_type: string }>(
-    `DELETE FROM public.user_connector_credentials
-     WHERE user_id = $1 AND connector_type = $2
-     RETURNING id, connector_type`,
-    [user.id, typeParam],
-  );
+  try {
+    const result = await query<{ id: string; connector_type: string }>(
+      `DELETE FROM public.user_connector_credentials
+       WHERE user_id = $1 AND connector_type = $2 AND (kind = 'connector' OR kind IS NULL)
+       RETURNING id, connector_type`,
+      [user.id, typeParam],
+    );
 
-  if (result.rows.length === 0) {
-    throw new HTTPException(404, {
-      message: `No credentials configured for connector type "${typeParam}"`,
+    if (result.rows.length === 0) {
+      throw new HTTPException(404, {
+        message: `No credentials configured for connector type "${typeParam}"`,
+      });
+    }
+
+    return c.json({
+      success: true,
+      message: `Credentials for ${typeParam} deleted successfully`,
     });
+  } catch (err: any) {
+    if (err instanceof HTTPException) throw err;
+    console.error('[Connectors DELETE error]', err);
+    throw new HTTPException(500, { message: 'Database error deleting credentials' });
   }
-
-  return c.json({
-    success: true,
-    message: `Credentials for ${typeParam} deleted successfully`,
-  });
 });
 
 /**
