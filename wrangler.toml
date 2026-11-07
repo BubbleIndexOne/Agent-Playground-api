@@ -15,7 +15,6 @@ name = "agent-playground-backend-dev"
 
 [env.dev.vars]
 ENVIRONMENT = "dev"
-VAULT_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 TOOL_REPORT_AUTOHOLD_THRESHOLD = "5"
 
 # Hyperdrive binding — Supabase Dev database

@@ -2154,10 +2154,14 @@ export function createApp() {
   // Global error handler
   app.onError((err, c) => {
     if (err instanceof HTTPException) {
-      return c.json(
-        { statusCode: err.status, message: err.message },
-        err.status,
-      );
+      const body: Record<string, any> = {
+        statusCode: err.status,
+        message: err.message,
+      };
+      if ((err as any).code) {
+        body.code = (err as any).code;
+      }
+      return c.json(body, err.status);
     }
     console.error('[Unhandled error]', err);
     return c.json({ statusCode: 500, message: 'Internal server error' }, 500);

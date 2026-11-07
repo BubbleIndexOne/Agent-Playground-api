@@ -97,4 +97,50 @@ describe('Sandbox Worker', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('executes simple return 1 statement and verifies result', async () => {
+    const req = new Request('http://sandbox/execute', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-sandbox-key': 'test-sandbox-key',
+      },
+      body: JSON.stringify({
+        code: 'return 1;',
+        args: {},
+        capabilities: [],
+      }),
+    });
+
+    const res = await sandboxWorker.fetch(req, env);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.result).toBe(1);
+  });
+
+  it('bounds synchronous execution and interrupts infinite loop within about 5 seconds', async () => {
+    const startTime = Date.now();
+    const req = new Request('http://sandbox/execute', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-sandbox-key': 'test-sandbox-key',
+      },
+      body: JSON.stringify({
+        code: 'while (true) {}',
+        args: {},
+        capabilities: [],
+      }),
+    });
+
+    const res = await sandboxWorker.fetch(req, env);
+    const elapsed = Date.now() - startTime;
+    const body = await res.json();
+
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/interrupted|timed out/i);
+    expect(elapsed).toBeGreaterThanOrEqual(4500);
+    expect(elapsed).toBeLessThan(8000);
+  }, 10000);
 });

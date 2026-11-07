@@ -109,8 +109,13 @@ export async function testModelProviderKey(
   if (provider === 'google') {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(trimmed)}&pageSize=1`,
-        { method: 'GET' }
+        'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
+        {
+          method: 'GET',
+          headers: {
+            'x-goog-api-key': trimmed,
+          },
+        }
       );
       if (res.ok) {
         return { ok: true, message: 'Google Gemini API key verified successfully' };

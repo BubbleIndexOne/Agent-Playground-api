@@ -137,6 +137,11 @@ describe('LLM Key-Injecting Proxy Routes (/llm/:provider/*)', () => {
       headers: {
         Authorization: 'Bearer valid.jwt.token',
         'Content-Type': 'application/json',
+        Cookie: 'session=secret-cookie',
+        Origin: 'https://browser.example.com',
+        Referer: 'https://browser.example.com/chat',
+        'X-Forwarded-For': '203.0.113.195',
+        'CF-Ray': '8d39c0119a-IAD',
       },
       body: clientRequestBody,
     });
@@ -154,11 +159,16 @@ describe('LLM Key-Injecting Proxy Routes (/llm/:provider/*)', () => {
     const sentHeaders = fetchOptions.headers;
     expect(sentHeaders.get('x-api-key')).toBe(userApiKey);
     expect(sentHeaders.get('anthropic-version')).toBe('2023-06-01');
-    // Ensure Loom client token was stripped
+    // Ensure Loom client token and browser/tracking headers were stripped
     expect(sentHeaders.has('authorization')).toBe(false);
+    expect(sentHeaders.has('cookie')).toBe(false);
+    expect(sentHeaders.has('origin')).toBe(false);
+    expect(sentHeaders.has('referer')).toBe(false);
+    expect(sentHeaders.has('x-forwarded-for')).toBe(false);
+    expect(sentHeaders.has('cf-ray')).toBe(false);
   });
 
-  it('clears last_verified_at in database if upstream returns 401', async () => {
+  it('clears last_verified_at and returns 502 with distinct error code if upstream returns 401', async () => {
     const userApiKey = 'sk-ant-api03-revoked-key';
     const aad = `${mockUser.id}:model_provider:anthropic`;
     const encrypted = await encryptVaultPayload(
@@ -183,7 +193,11 @@ describe('LLM Key-Injecting Proxy Routes (/llm/:provider/*)', () => {
       headers: { Authorization: 'Bearer valid.jwt.token' },
     });
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(502);
+    const body: any = await res.json();
+    expect(body.code).toBe('UPSTREAM_PROVIDER_AUTH_ERROR');
+    expect(body.message).toContain('rejected the configured API key');
+
     // Asynchronous query update triggered for clearing last_verified_at
     expect(dbMocks.query).toHaveBeenCalledWith(
       expect.stringContaining('UPDATE public.user_connector_credentials'),

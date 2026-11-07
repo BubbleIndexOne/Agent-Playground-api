@@ -1,4 +1,18 @@
-import { getQuickJS } from 'quickjs-emscripten';
+import {
+  newQuickJSWASMModuleFromVariant,
+  RELEASE_SYNC,
+  shouldInterruptAfterDeadline,
+  type QuickJSContext,
+  type QuickJSHandle,
+} from 'quickjs-emscripten';
+
+let quickJsPromise: ReturnType<typeof newQuickJSWASMModuleFromVariant> | null = null;
+function getQuickJSInstance() {
+  if (!quickJsPromise) {
+    quickJsPromise = newQuickJSWASMModuleFromVariant(RELEASE_SYNC);
+  }
+  return quickJsPromise;
+}
 
 export default {
   async fetch(req: Request, env: any) {
@@ -42,38 +56,62 @@ export default {
         return response;
       };
 
-      try {
-        const QuickJS = await getQuickJS();
-        const vm = QuickJS.newContext();
+      let vm: QuickJSContext | null = null;
+      let isVmAlive = false;
+      let promiseHandle: QuickJSHandle | null = null;
 
-        const hostHttpGetHandle = vm.newFunction("hostHttpGet", (urlHandle) => {
+      try {
+        const QuickJS = await getQuickJSInstance();
+        vm = QuickJS.newContext();
+        isVmAlive = true;
+
+        // Bound synchronous guest execution, memory and stack limits
+        vm.runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + 5000));
+        vm.runtime.setMemoryLimit(16 * 1024 * 1024); // 16 MB limit
+        vm.runtime.setMaxStackSize(512 * 1024);       // 512 KB stack
+
+        const hostHttpGetHandle = vm.newFunction('hostHttpGet', (urlHandle) => {
+          if (!isVmAlive || !vm) return;
           const url = vm.getString(urlHandle);
           const promise = vm.newPromise();
-          
-          scopedHttpGet(url).then(async (response) => {
-            const body = await response.text();
-            const resultStr = JSON.stringify({
-              status: response.status,
-              statusText: response.statusText,
-              body: body
+
+          scopedHttpGet(url)
+            .then(async (response) => {
+              if (!isVmAlive || !vm) return;
+              try {
+                const body = await response.text();
+                if (!isVmAlive || !vm) return;
+                const resultStr = JSON.stringify({
+                  status: response.status,
+                  statusText: response.statusText,
+                  body: body,
+                });
+                const resHandle = vm.newString(resultStr);
+                promise.resolve(resHandle);
+                resHandle.dispose();
+                promise.dispose();
+                vm.runtime.executePendingJobs();
+              } catch {
+                try { promise.dispose(); } catch {}
+              }
+            })
+            .catch((err) => {
+              if (!isVmAlive || !vm) return;
+              try {
+                const errHandle = vm.newString(err.message || String(err));
+                promise.reject(errHandle);
+                errHandle.dispose();
+                promise.dispose();
+                vm.runtime.executePendingJobs();
+              } catch {
+                try { promise.dispose(); } catch {}
+              }
             });
-            const resHandle = vm.newString(resultStr);
-            promise.resolve(resHandle);
-            resHandle.dispose();
-            promise.dispose();
-            vm.runtime.executePendingJobs();
-          }).catch((err) => {
-            const errHandle = vm.newString(err.message);
-            promise.reject(errHandle);
-            errHandle.dispose();
-            promise.dispose();
-            vm.runtime.executePendingJobs();
-          });
 
           return promise.handle;
         });
 
-        vm.setProp(vm.global, "hostHttpGet", hostHttpGetHandle);
+        vm.setProp(vm.global, 'hostHttpGet', hostHttpGetHandle);
         hostHttpGetHandle.dispose();
 
         const wrapperCode = `
@@ -103,21 +141,27 @@ export default {
           evalResult.error.dispose();
           throw new Error(errDump?.message || errStr);
         } else {
-          const promiseHandle = evalResult.value;
-          
+          promiseHandle = evalResult.value;
+
           const p = vm.resolvePromise(promiseHandle);
           vm.runtime.executePendingJobs();
 
           // Use Promise.race to enforce timeout on the QuickJS promise resolution
           const resolvedResult = await Promise.race([
-            p.then(r => {
-              promiseHandle.dispose();
+            p.then((r) => {
+              if (promiseHandle) {
+                promiseHandle.dispose();
+                promiseHandle = null;
+              }
               return r;
             }),
-            timeoutPromise.then(r => {
-              promiseHandle.dispose(); // clean up if timeout happens
-              throw r; // this will be caught by outer try-catch
-            })
+            timeoutPromise.then((r) => {
+              if (promiseHandle) {
+                try { promiseHandle.dispose(); } catch {}
+                promiseHandle = null;
+              }
+              throw r;
+            }),
           ]);
 
           if (resolvedResult.error) {
@@ -132,15 +176,24 @@ export default {
           }
         }
 
-        vm.dispose();
-        clearTimeout(timeoutId);
         return Response.json({ success: true, result: finalResult, observedCalls });
       } catch (err: any) {
-        clearTimeout(timeoutId);
         return Response.json({ success: false, error: err.message, observedCalls });
+      } finally {
+        controller.abort();
+        clearTimeout(timeoutId);
+        if (promiseHandle) {
+          try { promiseHandle.dispose(); } catch {}
+          promiseHandle = null;
+        }
+        if (isVmAlive && vm) {
+          isVmAlive = false;
+          try { vm.dispose(); } catch {}
+          vm = null;
+        }
       }
     } catch (err: any) {
       return Response.json({ success: false, error: 'Invalid request: ' + err.message }, { status: 400 });
     }
-  }
+  },
 };
