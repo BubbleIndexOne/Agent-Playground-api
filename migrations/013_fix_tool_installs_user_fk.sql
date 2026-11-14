@@ -14,3 +14,4 @@ alter table public.tool_installs
 drop policy if exists "user manages own installs" on public.tool_installs;
 create policy "service role full access" on public.tool_installs
   for all using (true) with check (true);
+
