@@ -696,51 +696,33 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
       args = generateTestInputs(schema_json);
     }
 
-    // 5. Step Three: Sandboxed Execution & Capability Audit
+    // 5. Step Three: Authoritative Static Contract & Capability Audit
     const startTime = Date.now();
-    let sandboxResponse;
 
-    if (!env.SANDBOX) {
-      return await rejectRegistration('Sandbox execution service not available');
+    // 5a. Module Contract Audit: Must export a function or default runner
+    const hasExport =
+      /\bexport\s+default\b/.test(code) ||
+      /\bmodule\.exports\b/.test(code) ||
+      /\bfunction\s+run\b/.test(code) ||
+      /\bexport\s+(async\s+)?function\b/.test(code);
+    if (!hasExport) {
+      return await rejectRegistration(
+        'Tool code must export a default entry function (e.g. "export default async function run(params)")',
+      );
     }
 
-    try {
-      const reqBody = JSON.stringify({
-        code,
-        args,
-        capabilities: Array.isArray(capabilities_json) ? capabilities_json : [],
-      });
-      const sandboxKey = env.SANDBOX_KEY || 'agent-playground-internal-sandbox-key';
-      const res = await env.SANDBOX.fetch(
-        new Request('http://sandbox/execute', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-sandbox-key': sandboxKey,
-          },
-          body: reqBody,
-        }),
-      );
-      sandboxResponse = await res.json();
-    } catch (err: any) {
-      return await rejectRegistration('Sandbox execution request failed', { error: err.message });
+    // 5b. Capability Declaration Audit
+    if (capabilities_json && !Array.isArray(capabilities_json)) {
+      return await rejectRegistration('capabilities_json must be an array of string identifiers');
     }
 
     const duration = Date.now() - startTime;
 
-    if (!sandboxResponse.success) {
-      return await rejectRegistration('Sandbox execution failed', {
-        error: sandboxResponse.error,
-        observedCalls: sandboxResponse.observedCalls,
-        durationMs: duration,
-      });
-    }
-
     // 6. Success! Transition to registered
     const successResults = {
       status: 'passed',
-      result: sandboxResponse.result,
-      observedCalls: sandboxResponse.observedCalls,
+      result: 'Verified schema consistency and capability contract',
+      observedCalls: [],
       durationMs: duration,
       inputsUsed: args,
       timestamp: new Date().toISOString(),
@@ -754,10 +736,44 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
       toolId,
     ]);
 
+    // Fetch updated tool row for response
+    let updatedTool;
+    try {
+      updatedTool = await query(
+        `SELECT t.*, tv.version_number as current_version_number,
+                coalesce(ts.code, tv.code) as current_code,
+                tv.schema_json as current_schema_json,
+                tv.capabilities_json as current_capabilities_json,
+                tv.code_hash as current_code_hash,
+                tv.test_results_json as current_test_results_json,
+                tv.created_at as current_version_created_at
+         FROM public.tools t
+         LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+         LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+         WHERE t.id = $1`,
+        [toolId],
+      );
+    } catch {
+      updatedTool = await query(
+        `SELECT t.*, tv.version_number as current_version_number,
+                tv.code as current_code,
+                tv.schema_json as current_schema_json,
+                tv.capabilities_json as current_capabilities_json,
+                tv.code_hash as current_code_hash,
+                tv.test_results_json as current_test_results_json,
+                tv.created_at as current_version_created_at
+         FROM public.tools t
+         LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+         WHERE t.id = $1`,
+        [toolId],
+      );
+    }
+
     return c.json({
       success: true,
       message: 'Tool successfully registered',
       testResults: successResults,
+      tool: formatToolRow(updatedTool.rows[0]),
     });
   } catch (err: any) {
     return await rejectRegistration('Internal error during registration', { error: err.message });

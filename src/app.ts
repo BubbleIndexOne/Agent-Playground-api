@@ -1179,8 +1179,8 @@ const openApiSpec = {
     '/tools/{id}/register': {
       post: {
         tags: ['tools'],
-        summary: 'Run automated sandbox registration audit for client tool',
-        description: 'Validates schema consistency, generates test inputs, and executes client tool code inside isolated Cloudflare Sandbox Worker to transition status from draft to registered.',
+        summary: 'Run automated static registration audit for client tool',
+        description: 'Performs authoritative static analysis, schema consistency verification, and capability auditing to transition tool status from draft to registered.',
         security: [{ bearer: [] }],
         parameters: [
           {

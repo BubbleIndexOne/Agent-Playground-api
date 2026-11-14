@@ -754,4 +754,240 @@ describe('tools routes', () => {
       });
     });
   });
+
+  describe('POST /tools/:id/register', () => {
+    it('successfully registers a draft tool and transitions status to registered', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        }) // 1. toolCheck
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'export default async function run(params) { return params.x + 1; }',
+              schema_json: {
+                type: 'object',
+                properties: { x: { type: 'number', description: 'Input value' } },
+              },
+              capabilities_json: ['fetch'],
+            },
+          ],
+        }) // 2. versionCheck
+        .mockResolvedValueOnce({ rows: [] }) // 3. set testing
+        .mockResolvedValueOnce({ rows: [] }) // 4. update test_results_json
+        .mockResolvedValueOnce({ rows: [] }) // 5. update status = registered
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              name: 'Calculator',
+              status: 'registered',
+              type: 'client',
+              current_version_id: 'ver-1',
+              current_version_number: 1,
+              current_code: 'export default async function run(params) { return params.x + 1; }',
+              current_schema_json: {
+                type: 'object',
+                properties: { x: { type: 'number', description: 'Input value' } },
+              },
+              current_capabilities_json: ['fetch'],
+              current_code_hash: 'hash-123',
+              current_test_results_json: { status: 'passed' },
+              current_version_created_at: new Date().toISOString(),
+            },
+          ],
+        }); // 6. updatedTool
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({ inputs: { x: 42 } }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(true);
+      expect(data.message).toBe('Tool successfully registered');
+      expect(data.testResults.status).toBe('passed');
+      expect(data.tool.status).toBe('registered');
+    });
+
+    it('returns 400 when tool is already registered', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'tool-1',
+            owner_id: 'user-123',
+            type: 'client',
+            status: 'registered',
+            current_version_id: 'ver-1',
+            is_archived: false,
+          },
+        ],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as any;
+      expect(data.message).toContain('Tool is in registered state and cannot be registered again');
+    });
+
+    it('returns 403 when non-owner attempts registration', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'tool-1',
+            owner_id: 'other-user',
+            type: 'client',
+            status: 'draft',
+            current_version_id: 'ver-1',
+            is_archived: false,
+          },
+        ],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(403);
+    });
+
+    it('returns 400 when tool type is not client', async () => {
+      dbMocks.query.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'tool-1',
+            owner_id: 'user-123',
+            type: 'mcp',
+            status: 'draft',
+            current_version_id: 'ver-1',
+            is_archived: false,
+          },
+        ],
+      });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as any;
+      expect(data.message).toContain('Only client tools require sandbox registration');
+    });
+
+    it('returns 400 when schema consistency validation fails', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'export default async function run(params) { return 1; }', // Missing params.missingParam
+              schema_json: {
+                type: 'object',
+                properties: { missingParam: { type: 'string', description: 'Not read in code' } },
+              },
+              capabilities_json: [],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // set testing
+        .mockResolvedValueOnce({ rows: [] }) // update test_results_json (failed)
+        .mockResolvedValueOnce({ rows: [] }); // update status = rejected
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(false);
+      expect(data.testResults.status).toBe('failed');
+      expect(data.testResults.reason).toContain('not read in function body');
+    });
+
+    it('returns 400 when code does not export an entry function', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'const a = 1; const b = 2;', // No export
+              schema_json: {
+                type: 'object',
+                properties: {},
+              },
+              capabilities_json: [],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // set testing
+        .mockResolvedValueOnce({ rows: [] }) // update test_results_json
+        .mockResolvedValueOnce({ rows: [] }); // update status = rejected
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(false);
+      expect(data.testResults.reason).toContain('export a default entry function');
+    });
+  });
 });
