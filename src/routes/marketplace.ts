@@ -369,19 +369,25 @@ marketplaceRouter.post(
       throw new HTTPException(400, { message: 'Tool has no registered version to install' });
     }
 
-    const result = await query<{
-      user_id: string;
-      tool_id: string;
-      pinned_version_id: string;
-      installed_at: string;
-    }>(
-      `INSERT INTO public.tool_installs (user_id, tool_id, pinned_version_id, installed_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (user_id, tool_id)
-       DO UPDATE SET pinned_version_id = excluded.pinned_version_id, installed_at = now()
-       RETURNING user_id, tool_id, pinned_version_id, installed_at`,
-      [user.id, toolId, targetVersionId],
-    );
+    let result;
+    try {
+      result = await query<{
+        user_id: string;
+        tool_id: string;
+        pinned_version_id: string;
+        installed_at: string;
+      }>(
+        `INSERT INTO public.tool_installs (user_id, tool_id, pinned_version_id, installed_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (user_id, tool_id)
+         DO UPDATE SET pinned_version_id = excluded.pinned_version_id, installed_at = now()
+         RETURNING user_id, tool_id, pinned_version_id, installed_at`,
+        [user.id, toolId, targetVersionId],
+      );
+    } catch (err: any) {
+      console.error('[Tool Install Error]', err);
+      throw new HTTPException(500, { message: 'Database error installing tool' });
+    }
 
     // Increment install_count atomically
     await query(
@@ -405,10 +411,16 @@ marketplaceRouter.delete('/tools/:id/install', requireAuth, async (c) => {
   const user = c.get('user');
   const toolId = c.req.param('id');
 
-  const result = await query(
-    `DELETE FROM public.tool_installs WHERE user_id = $1 AND tool_id = $2 RETURNING tool_id`,
-    [user.id, toolId],
-  );
+  let result;
+  try {
+    result = await query(
+      `DELETE FROM public.tool_installs WHERE user_id = $1 AND tool_id = $2 RETURNING tool_id`,
+      [user.id, toolId],
+    );
+  } catch (err: any) {
+    console.error('[Tool Uninstall Error]', err);
+    throw new HTTPException(500, { message: 'Database error uninstalling tool' });
+  }
 
   if (result.rows.length === 0) {
     throw new HTTPException(404, { message: 'Tool is not installed in your account' });
