@@ -355,7 +355,13 @@ const openApiSpec = {
             required: ['status', 'timestamp'],
             properties: {
               status: { type: 'string', enum: ['passed', 'failed'], example: 'passed' },
-              result: { type: 'object', nullable: true },
+              result: {
+                oneOf: [
+                  { type: 'string', example: 'Verified schema consistency and capability contract' },
+                  { type: 'object' },
+                  { type: 'null' },
+                ],
+              },
               observedCalls: { type: 'array', items: { type: 'string' }, example: ['fetch'] },
               durationMs: { type: 'integer', example: 120 },
               inputsUsed: { type: 'object' },

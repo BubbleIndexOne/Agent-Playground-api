@@ -31,7 +31,7 @@ vi.mock('../../src/services/jwt', () => ({
   generateRefreshToken: jwtMocks.generateRefreshToken,
 }));
 
-import { toolsRouter } from '../../src/routes/tools';
+import { toolsRouter, validateCallableEntryPoint } from '../../src/routes/tools';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,7 @@ describe('tools routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    dbMocks.query.mockReset();
     process.env.ADMIN_SECRET_KEY = 'test-admin-key';
     jwtMocks.verifyAccessToken.mockResolvedValue({ sub: 'user-123', email: 'agent@example.com' });
   });
@@ -988,6 +989,289 @@ describe('tools routes', () => {
       const data = (await response.json()) as any;
       expect(data.success).toBe(false);
       expect(data.testResults.reason).toContain('export a default entry function');
+    });
+
+    it('returns 400 when code exports a non-function literal as default (e.g. export default 42)', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'export default 42;',
+              schema_json: { type: 'object', properties: {} },
+              capabilities_json: [],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // set testing
+        .mockResolvedValueOnce({ rows: [] }) // update test_results_json
+        .mockResolvedValueOnce({ rows: [] }); // update status = rejected
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(false);
+      expect(data.testResults.reason).toContain('Default export must be a callable function');
+    });
+
+    it('successfully registers tool with aliased default export (export { runner as default })', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'function runner(params) { return params.x; }\nexport { runner as default };',
+              schema_json: {
+                type: 'object',
+                properties: { x: { type: 'number', description: 'Input value' } },
+              },
+              capabilities_json: [],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // set testing
+        .mockResolvedValueOnce({ rows: [] }) // update test_results_json
+        .mockResolvedValueOnce({ rows: [] }) // update status = registered
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              name: 'Alias Tool',
+              status: 'registered',
+              type: 'client',
+              current_version_id: 'ver-1',
+              current_version_number: 1,
+              current_code: 'function runner(params) { return params.x; }\nexport { runner as default };',
+              current_schema_json: { type: 'object', properties: { x: { type: 'number', description: 'Input value' } } },
+              current_capabilities_json: [],
+              current_code_hash: 'hash-alias',
+              current_test_results_json: { status: 'passed' },
+              current_version_created_at: new Date().toISOString(),
+            },
+          ],
+        });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({ inputs: { x: 10 } }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(true);
+      expect(data.testResults.status).toBe('passed');
+      expect(data.tool.status).toBe('registered');
+    });
+
+    it('returns 400 when code calls httpGet for undeclared host without executing code', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'export default async function run(params) { return await httpGet("https://undeclared.com/api"); }',
+              schema_json: { type: 'object', properties: {} },
+              capabilities_json: ['api.github.com'],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // set testing
+        .mockResolvedValueOnce({ rows: [] }) // update test_results_json
+        .mockResolvedValueOnce({ rows: [] }); // update status = rejected
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(false);
+      expect(data.testResults.status).toBe('failed');
+      expect(data.testResults.reason).toContain('Tool calls httpGet for undeclared host: undeclared.com');
+    });
+
+    it('successfully registers tool when httpGet host is declared in capabilities_json', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'export default async function run(params) { return await httpGet("https://api.github.com/users"); }',
+              schema_json: { type: 'object', properties: {} },
+              capabilities_json: ['api.github.com'],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // set testing
+        .mockResolvedValueOnce({ rows: [] }) // update test_results_json
+        .mockResolvedValueOnce({ rows: [] }) // update status = registered
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              name: 'GitHub Tool',
+              status: 'registered',
+              type: 'client',
+              current_version_id: 'ver-1',
+              current_version_number: 1,
+              current_code: 'export default async function run(params) { return await httpGet("https://api.github.com/users"); }',
+              current_schema_json: { type: 'object', properties: {} },
+              current_capabilities_json: ['api.github.com'],
+              current_code_hash: 'hash-gh',
+              current_test_results_json: { status: 'passed' },
+              current_version_created_at: new Date().toISOString(),
+            },
+          ],
+        });
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(true);
+      expect(data.testResults.status).toBe('passed');
+      expect(data.tool.status).toBe('registered');
+    });
+
+    it('safely handles read errors during response hydration without rejecting registered tool', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'tool-1',
+              owner_id: 'user-123',
+              type: 'client',
+              status: 'draft',
+              current_version_id: 'ver-1',
+              is_archived: false,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 'ver-1',
+              code: 'export default async function run(params) { return 1; }',
+              schema_json: { type: 'object', properties: {} },
+              capabilities_json: [],
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] }) // set testing
+        .mockResolvedValueOnce({ rows: [] }) // update test_results_json
+        .mockResolvedValueOnce({ rows: [] }) // update status = registered
+        .mockRejectedValueOnce(new Error('primary select failed')) // updatedTool primary fails
+        .mockRejectedValueOnce(new Error('fallback select failed')); // fallback fails
+
+      const response = await app.request(
+        new Request('http://localhost/tools/tool-1/register', {
+          method: 'POST',
+          headers: authHeaders,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const data = (await response.json()) as any;
+      expect(data.success).toBe(true);
+      expect(data.message).toBe('Tool successfully registered');
+      expect(data.tool).toBeNull();
+
+      // Ensure rejectRegistration was NOT invoked:
+      const updateCalls = dbMocks.query.mock.calls.filter((call) =>
+        typeof call[0] === 'string' && call[0].includes('UPDATE public.tools SET status ='),
+      );
+      expect(updateCalls).toHaveLength(2); // testing, then registered
+      expect(updateCalls[1][0]).toContain("status = 'registered'");
+    });
+  });
+
+  describe('validateCallableEntryPoint helper', () => {
+    it('accepts valid function default exports', () => {
+      expect(validateCallableEntryPoint('export default function run() {}').isValid).toBe(true);
+      expect(validateCallableEntryPoint('export default async function(p) { return p; }').isValid).toBe(true);
+      expect(validateCallableEntryPoint('export default (params) => { return 1; }').isValid).toBe(true);
+      expect(validateCallableEntryPoint('export default async () => 42').isValid).toBe(true);
+      expect(validateCallableEntryPoint('const runner = (p) => p;\nexport default runner;').isValid).toBe(true);
+      expect(validateCallableEntryPoint('function runner(p) { return p; }\nexport default runner;').isValid).toBe(true);
+      expect(validateCallableEntryPoint('function runner(p) { return p; }\nexport { runner as default };').isValid).toBe(true);
+      expect(validateCallableEntryPoint('const runner = async (p) => p;\nexport { runner as default };').isValid).toBe(true);
+    });
+
+    it('rejects non-function default exports', () => {
+      expect(validateCallableEntryPoint('export default 42;').isValid).toBe(false);
+      expect(validateCallableEntryPoint('export default "string";').isValid).toBe(false);
+      expect(validateCallableEntryPoint('export default true;').isValid).toBe(false);
+      expect(validateCallableEntryPoint('export default { foo: "bar" };').isValid).toBe(false);
+      expect(validateCallableEntryPoint('export default [1, 2, 3];').isValid).toBe(false);
+      expect(validateCallableEntryPoint('const num = 42;\nexport default num;').isValid).toBe(false);
+      expect(validateCallableEntryPoint('const num = 42;\nexport { num as default };').isValid).toBe(false);
     });
   });
 });
