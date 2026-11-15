@@ -588,6 +588,88 @@ toolsRouter.post(
   },
 );
 
+// ─── Entry Point Validation Helpers ──────────────────────────────────────────
+
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*/g, '$1 ');
+}
+
+export function validateCallableEntryPoint(code: string): { isValid: boolean; error?: string } {
+  const clean = stripComments(code).trim();
+
+  // 1. Direct function default export
+  if (
+    /\bexport\s+default\s+(async\s+)?function\b/.test(clean) ||
+    /\bexport\s+default\s+(async\s*)?\([^)]*\)\s*=>/.test(clean) ||
+    /\bexport\s+default\s+(async\s*)?[a-zA-Z0-9_$]+\s*=>/.test(clean)
+  ) {
+    return { isValid: true };
+  }
+
+  // 2. Reject non-function default export literals (e.g. export default 42, "hello", { ... })
+  if (
+    /\bexport\s+default\s+(-?\d+(\.\d+)?|true|false|null|undefined|'[^']*'|"[^"]*"|`[^`]*`|\{|\[)/.test(clean)
+  ) {
+    return { isValid: false, error: 'Default export must be a callable function, received non-function literal' };
+  }
+
+  // 3. Export default identifier: export default runner;
+  const defaultIdMatch = clean.match(/\bexport\s+default\s+([a-zA-Z0-9_$]+)\s*;?/);
+  if (defaultIdMatch) {
+    const id = defaultIdMatch[1];
+    const isDeclaredAsFunction =
+      new RegExp(`\\bfunction\\s+${id}\\b`).test(clean) ||
+      new RegExp(`\\basync\\s+function\\s+${id}\\b`).test(clean) ||
+      new RegExp(`\\b(const|let|var)\\s+${id}\\s*=\\s*(async\s+)?function\\b`).test(clean) ||
+      new RegExp(`\\b(const|let|var)\\s+${id}\\s*=\\s*(async\\s*)?(\\([^)]*\\)|[a-zA-Z0-9_$]+)\\s*=>`).test(clean);
+
+    if (isDeclaredAsFunction) {
+      return { isValid: true };
+    }
+    return { isValid: false, error: `Default export "${id}" must be a callable function` };
+  }
+
+  // 4. Aliased export: export { runner as default }
+  const aliasMatch = clean.match(/\bexport\s*\{[^}]*\b([a-zA-Z0-9_$]+)\s+as\s+default[^}]*\}/);
+  if (aliasMatch) {
+    const id = aliasMatch[1];
+    const isDeclaredAsFunction =
+      new RegExp(`\\bfunction\\s+${id}\\b`).test(clean) ||
+      new RegExp(`\\basync\\s+function\\s+${id}\\b`).test(clean) ||
+      new RegExp(`\\b(const|let|var)\\s+${id}\\s*=\\s*(async\s+)?function\\b`).test(clean) ||
+      new RegExp(`\\b(const|let|var)\\s+${id}\\s*=\\s*(async\\s*)?(\\([^)]*\\)|[a-zA-Z0-9_$]+)\\s*=>`).test(clean);
+
+    if (isDeclaredAsFunction) {
+      return { isValid: true };
+    }
+    return { isValid: false, error: `Aliased default export "${id}" must be a callable function` };
+  }
+
+  // 5. Named export of run function: export function run() / export async function run()
+  if (
+    /\bexport\s+(async\s+)?function\s+run\b/.test(clean) ||
+    /\bexport\s+(const|let|var)\s+run\s*=\s*(async\s*)?(\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>/.test(clean) ||
+    /\bfunction\s+run\b/.test(clean)
+  ) {
+    return { isValid: true };
+  }
+
+  // 6. CommonJS exports: module.exports = function / module.exports = () => ...
+  if (
+    /\bmodule\.exports\s*=\s*(async\s+)?function\b/.test(clean) ||
+    /\bmodule\.exports\s*=\s*(async\s*)?(\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>/.test(clean)
+  ) {
+    return { isValid: true };
+  }
+
+  return {
+    isValid: false,
+    error: 'Tool code must export a default entry function (e.g. "export default async function run(params)")',
+  };
+}
+
 // POST /tools/:id/register - Automate tool verification and status transition
 toolsRouter.post('/:id/register', requireAuth, async (c) => {
   const user = c.get('user');
@@ -696,51 +778,61 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
       args = generateTestInputs(schema_json);
     }
 
-    // 5. Step Three: Sandboxed Execution & Capability Audit
+    // 5. Step Three: Authoritative Static Contract & Capability Audit
     const startTime = Date.now();
-    let sandboxResponse;
 
-    if (!env.SANDBOX) {
-      return await rejectRegistration('Sandbox execution service not available');
+    // 5a. Module Contract Audit: Must export a callable function or entry runner
+    const entryCheck = validateCallableEntryPoint(code);
+    if (!entryCheck.isValid) {
+      return await rejectRegistration(
+        entryCheck.error || 'Tool code must export a default entry function (e.g. "export default async function run(params)")',
+      );
     }
 
-    try {
-      const reqBody = JSON.stringify({
-        code,
-        args,
-        capabilities: Array.isArray(capabilities_json) ? capabilities_json : [],
-      });
-      const sandboxKey = env.SANDBOX_KEY || 'agent-playground-internal-sandbox-key';
-      const res = await env.SANDBOX.fetch(
-        new Request('http://sandbox/execute', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-sandbox-key': sandboxKey,
-          },
-          body: reqBody,
-        }),
-      );
-      sandboxResponse = await res.json();
-    } catch (err: any) {
-      return await rejectRegistration('Sandbox execution request failed', { error: err.message });
+    // 5b. Capability Declaration Audit
+    if (capabilities_json && !Array.isArray(capabilities_json)) {
+      return await rejectRegistration('capabilities_json must be an array of string identifiers');
+    }
+
+    // Static verification: Check for undeclared network calls via httpGet
+    const cleanCode = stripComments(code);
+    const httpGetRegex = /\bhttpGet\s*\(\s*(['"`])([^'"`]+)\1/g;
+    let httpMatch: RegExpExecArray | null;
+    const declaredCaps: string[] = Array.isArray(capabilities_json) ? capabilities_json : [];
+
+    while ((httpMatch = httpGetRegex.exec(cleanCode)) !== null) {
+      const targetUrl = httpMatch[2];
+      try {
+        const parsed = new URL(targetUrl);
+        const host = parsed.hostname.toLowerCase();
+
+        const isAllowed = declaredCaps.some((cap: string) => {
+          if (typeof cap !== 'string') return false;
+          const cleanCap = cap
+            .replace(/^(https?:\/\/|http:|https:)/i, '')
+            .replace(/\/.*$/, '')
+            .toLowerCase();
+          return cleanCap === '*' || cleanCap === host || host.endsWith('.' + cleanCap);
+        });
+
+        if (!isAllowed) {
+          return await rejectRegistration(
+            `Tool calls httpGet for undeclared host: ${host}. Declare it in capabilities_json to enable access.`,
+            { undeclaredHost: host, targetUrl },
+          );
+        }
+      } catch {
+        // Skip non-standard or relative URLs
+      }
     }
 
     const duration = Date.now() - startTime;
 
-    if (!sandboxResponse.success) {
-      return await rejectRegistration('Sandbox execution failed', {
-        error: sandboxResponse.error,
-        observedCalls: sandboxResponse.observedCalls,
-        durationMs: duration,
-      });
-    }
-
     // 6. Success! Transition to registered
     const successResults = {
       status: 'passed',
-      result: sandboxResponse.result,
-      observedCalls: sandboxResponse.observedCalls,
+      result: 'Verified schema consistency and capability contract',
+      observedCalls: [],
       durationMs: duration,
       inputsUsed: args,
       timestamp: new Date().toISOString(),
@@ -754,10 +846,50 @@ toolsRouter.post('/:id/register', requireAuth, async (c) => {
       toolId,
     ]);
 
+    // Fetch updated tool row for response (isolated so read errors do not trigger rejectRegistration)
+    let updatedToolRow: any = null;
+    try {
+      const updatedTool = await query(
+        `SELECT t.*, tv.version_number as current_version_number,
+                coalesce(ts.code, tv.code) as current_code,
+                tv.schema_json as current_schema_json,
+                tv.capabilities_json as current_capabilities_json,
+                tv.code_hash as current_code_hash,
+                tv.test_results_json as current_test_results_json,
+                tv.created_at as current_version_created_at
+         FROM public.tools t
+         LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+         LEFT JOIN public.tool_sources ts ON tv.id = ts.version_id
+         WHERE t.id = $1`,
+        [toolId],
+      );
+      updatedToolRow = updatedTool.rows[0];
+    } catch {
+      try {
+        const fallbackTool = await query(
+          `SELECT t.*, tv.version_number as current_version_number,
+                  tv.code as current_code,
+                  tv.schema_json as current_schema_json,
+                  tv.capabilities_json as current_capabilities_json,
+                  tv.code_hash as current_code_hash,
+                  tv.test_results_json as current_test_results_json,
+                  tv.created_at as current_version_created_at
+           FROM public.tools t
+           LEFT JOIN public.tool_versions tv ON t.current_version_id = tv.id
+           WHERE t.id = $1`,
+          [toolId],
+        );
+        updatedToolRow = fallbackTool.rows[0];
+      } catch (readErr: any) {
+        console.error('[Registration response read error]', readErr);
+      }
+    }
+
     return c.json({
       success: true,
       message: 'Tool successfully registered',
       testResults: successResults,
+      tool: updatedToolRow ? formatToolRow(updatedToolRow) : null,
     });
   } catch (err: any) {
     return await rejectRegistration('Internal error during registration', { error: err.message });

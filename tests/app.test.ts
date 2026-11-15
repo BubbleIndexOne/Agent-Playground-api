@@ -72,6 +72,14 @@ describe('application factory', () => {
       '/admin/mcp/{id}/promote',
       '/admin/mcp/{id}/reject',
       '/internal/mcp/tools',
+      '/agents',
+      '/agents/export',
+      '/agents/{id}',
+      '/chats',
+      '/chats/{id}',
+      '/chats/{id}/messages',
+      '/chats/{id}/messages/{messageId}',
+      '/users/me/settings',
     ]);
     expect(spec.paths['/auth/me'].get.security).toEqual([{ bearer: [] }]);
     expect(spec.paths['/auth/signup'].post.responses).toMatchObject({
