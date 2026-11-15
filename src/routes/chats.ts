@@ -117,7 +117,7 @@ chatsRouter.post(
   }),
   async (c) => {
     const user = c.get('user');
-    const { agent_id, title } = c.req.valid('json');
+    const { id, agent_id, title } = c.req.valid('json');
 
     // Verify agent exists and belongs to user
     const agentRes = await query<{ id: string }>(
@@ -129,6 +129,7 @@ chatsRouter.post(
       throw new HTTPException(404, { message: 'Agent not found' });
     }
 
+    const sessionId = id || crypto.randomUUID();
     const insertRes = await query<{
       id: string;
       user_id: string;
@@ -138,10 +139,13 @@ chatsRouter.post(
       created_at: string;
       updated_at: string;
     }>(
-      `INSERT INTO public.chat_sessions (user_id, agent_id, title)
-       VALUES ($1, $2, $3)
+      `INSERT INTO public.chat_sessions (id, user_id, agent_id, title)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title,
+         updated_at = now()
        RETURNING *`,
-      [user.id, agent_id, title || 'New Conversation'],
+      [sessionId, user.id, agent_id, title || 'New Conversation'],
     );
 
     const row = insertRes.rows[0];
@@ -344,6 +348,10 @@ chatsRouter.post(
           `INSERT INTO public.chat_messages (
              id, chat_id, user_id, role, content, tool_calls_json, error_text, created_at
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE SET
+             content = EXCLUDED.content,
+             tool_calls_json = EXCLUDED.tool_calls_json,
+             error_text = EXCLUDED.error_text
            RETURNING id, chat_id, role, content, tool_calls_json, error_text, created_at`,
           [
             id,

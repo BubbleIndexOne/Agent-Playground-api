@@ -7,6 +7,7 @@ import {
   CreateAgentSchema,
   UpdateAgentSchema,
   ListAgentsQuerySchema,
+  ImportAgentsSchema,
   getDefaultBlobbie,
   AgentResponse,
   AttachedToolDetail,
@@ -182,13 +183,27 @@ agentsRouter.post(
     const avatar = data.avatar || getDefaultBlobbie(data.name);
 
     const agent = await withTransaction(async (client) => {
+      const agentId = data.id || crypto.randomUUID();
       const insertRes = await client.query(
         `INSERT INTO public.agents (
-           owner_id, name, description, system_prompt, source_preset_id,
+           id, owner_id, name, description, system_prompt, source_preset_id,
            model_provider, model_id, model_params, avatar_json, attached_connectors
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           description = EXCLUDED.description,
+           system_prompt = EXCLUDED.system_prompt,
+           source_preset_id = EXCLUDED.source_preset_id,
+           model_provider = EXCLUDED.model_provider,
+           model_id = EXCLUDED.model_id,
+           model_params = EXCLUDED.model_params,
+           avatar_json = EXCLUDED.avatar_json,
+           attached_connectors = EXCLUDED.attached_connectors,
+           is_archived = false,
+           updated_at = now()
          RETURNING *`,
         [
+          agentId,
           user.id,
           data.name,
           data.description || '',
@@ -254,6 +269,92 @@ agentsRouter.post('/export', async (c) => {
     agents,
   });
 });
+
+// ─── POST /agents/import ─────────────────────────────────────────────────────
+
+agentsRouter.post(
+  '/import',
+  zValidator('json', ImportAgentsSchema, (result, c) => {
+    if (!result.success && 'error' in result) {
+      return c.json({ statusCode: 400, message: result.error.errors.map((e) => e.message) }, 400);
+    }
+  }),
+  async (c) => {
+    const user = c.get('user');
+    const { agents } = c.req.valid('json');
+
+    const imported = await withTransaction(async (client) => {
+      const results: any[] = [];
+
+      for (const item of agents) {
+        const agentId = item.id || crypto.randomUUID();
+        const avatar = item.avatar || getDefaultBlobbie(item.name);
+        const provider = item.model_provider || 'google';
+        const modelId = item.model_id || 'gemini-2.5-flash';
+        const modelParams = item.model_params || {};
+
+        const insertRes = await client.query(
+          `INSERT INTO public.agents (
+             id, owner_id, name, description, system_prompt, source_preset_id,
+             model_provider, model_id, model_params, avatar_json, attached_connectors
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             description = EXCLUDED.description,
+             system_prompt = EXCLUDED.system_prompt,
+             source_preset_id = EXCLUDED.source_preset_id,
+             model_provider = EXCLUDED.model_provider,
+             model_id = EXCLUDED.model_id,
+             model_params = EXCLUDED.model_params,
+             avatar_json = EXCLUDED.avatar_json,
+             attached_connectors = EXCLUDED.attached_connectors,
+             is_archived = false,
+             updated_at = now()
+           RETURNING *`,
+          [
+            agentId,
+            user.id,
+            item.name,
+            item.description || '',
+            item.system_prompt || '',
+            item.source_preset_id || null,
+            provider,
+            modelId,
+            JSON.stringify(modelParams),
+            JSON.stringify(avatar),
+            JSON.stringify(item.attached_connectors || []),
+          ],
+        );
+
+        const createdAgent = insertRes.rows[0];
+
+        if (item.attached_tools && item.attached_tools.length > 0) {
+          await client.query('DELETE FROM public.agent_tools WHERE agent_id = $1', [createdAgent.id]);
+          for (const tool of item.attached_tools) {
+            await client.query(
+              `INSERT INTO public.agent_tools (agent_id, tool_id, pinned_version)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (agent_id, tool_id) DO UPDATE SET pinned_version = EXCLUDED.pinned_version`,
+              [createdAgent.id, tool.tool_id, tool.pinned_version ?? null],
+            );
+          }
+        }
+
+        results.push(createdAgent);
+      }
+
+      return results;
+    });
+
+    const agentIds = imported.map((a: any) => a.id);
+    const toolsMap = await fetchToolsForAgents(agentIds, user.id);
+    const responseAgents: AgentResponse[] = imported.map((row: any) =>
+      formatAgentRow(row, toolsMap.get(row.id) || []),
+    );
+
+    return c.json({ success: true, count: responseAgents.length, agents: responseAgents });
+  },
+);
 
 // ─── GET /agents/:id ─────────────────────────────────────────────────────────
 

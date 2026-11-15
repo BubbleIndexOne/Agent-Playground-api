@@ -68,6 +68,7 @@ export type ConnectorType = z.infer<typeof ConnectorTypeSchema>;
 // ─── Agent Request Schemas ────────────────────────────────────────────────────
 
 export const CreateAgentSchema = z.object({
+  id: z.string().uuid('id must be a valid UUID').optional(),
   name: z.string().trim().min(1, 'Name is required').max(100, 'Name must not exceed 100 characters'),
   description: z.string().trim().max(500, 'Description must not exceed 500 characters').default(''),
   system_prompt: z.string().default(''),
@@ -81,6 +82,12 @@ export const CreateAgentSchema = z.object({
 });
 
 export type CreateAgentInput = z.infer<typeof CreateAgentSchema>;
+
+export const ImportAgentsSchema = z.object({
+  agents: z.array(CreateAgentSchema).min(1, 'At least one agent is required'),
+});
+
+export type ImportAgentsInput = z.infer<typeof ImportAgentsSchema>;
 
 export const UpdateAgentSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100, 'Name must not exceed 100 characters').optional(),

@@ -337,4 +337,36 @@ describe('Agents Routes (/agents)', () => {
       expect(body.agents).toHaveLength(1);
     });
   });
+
+  describe('POST /agents/import', () => {
+    it('imports agents in a batch transaction', async () => {
+      dbMocks.query
+        .mockResolvedValueOnce({ rows: [sampleAgentRow] }) // insert agent inside tx
+        .mockResolvedValueOnce({ rows: [sampleToolRow] }); // fetch tools after tx
+
+      const res = await app.request('/agents/import', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer valid.jwt.token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          agents: [
+            {
+              id: sampleAgentRow.id,
+              name: 'Imported Agent',
+              description: 'Imported Bio',
+              system_prompt: 'System prompt',
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.count).toBe(1);
+      expect(body.agents[0].id).toBe(sampleAgentRow.id);
+    });
+  });
 });

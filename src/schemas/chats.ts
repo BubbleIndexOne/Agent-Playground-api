@@ -47,6 +47,7 @@ export interface ChatMessage {
 // ─── Chat Sessions ────────────────────────────────────────────────────────────
 
 export const CreateChatSessionSchema = z.object({
+  id: z.string().uuid('id must be a valid UUID').optional(),
   agent_id: z.string().uuid('agent_id must be a valid UUID'),
   title: z.string().trim().min(1, 'Title cannot be empty').max(200, 'Title must not exceed 200 characters').default('New Conversation'),
 });
