@@ -12,6 +12,9 @@ import { llmProxyRouter } from './routes/llmProxy';
 import { adminMcpRouter } from './routes/adminMcp';
 import { internalMcpRouter } from './routes/internalMcp';
 import { marketplaceRouter } from './routes/marketplace';
+import { agentsRouter } from './routes/agents';
+import { chatsRouter } from './routes/chats';
+import { settingsRouter } from './routes/settings';
 import { APP_CONSTANTS } from './constants';
 
 // ─── OpenAPI spec ─────────────────────────────────────────────────────────────
@@ -640,6 +643,233 @@ const openApiSpec = {
           success: { type: 'boolean', example: true },
           count: { type: 'integer', example: 1 },
           tools: { type: 'array', items: { type: 'object' } },
+        },
+      },
+      BlobbieConfig: {
+        type: 'object',
+        required: ['sides', 'round', 'bumps', 'point', 'pa', 'sx', 'sy', 'rot', 'color', 'es', 'tilt', 'sp', 'fx', 'fy'],
+        properties: {
+          sides: { type: 'integer', enum: [0, 3, 4, 5, 6], example: 0 },
+          round: { type: 'number', minimum: 0, maximum: 1, example: 0.88 },
+          bumps: { type: 'number', minimum: 0, maximum: 0.14, example: 0.04 },
+          point: { type: 'number', minimum: 0, maximum: 0.6, example: 0.32 },
+          pa: { type: 'number', minimum: -3.0, maximum: -1.8, example: -2.3 },
+          sx: { type: 'number', minimum: 0.7, maximum: 1.3, example: 1.05 },
+          sy: { type: 'number', minimum: 0.7, maximum: 1.3, example: 0.96 },
+          rot: { type: 'number', minimum: -1.6, maximum: 1.6, example: 0.12 },
+          color: { type: 'string', example: '#00a590' },
+          es: { type: 'number', minimum: 0.6, maximum: 1.4, example: 1.1 },
+          tilt: { type: 'number', minimum: -0.5, maximum: 0.7, example: 0.15 },
+          sp: { type: 'number', minimum: 0.15, maximum: 0.55, example: 0.36 },
+          fx: { type: 'number', minimum: -0.25, maximum: 0.35, example: 0.05 },
+          fy: { type: 'number', minimum: -0.4, maximum: 0.15, example: -0.15 },
+        },
+      },
+      AttachedToolInput: {
+        type: 'object',
+        required: ['tool_id'],
+        properties: {
+          tool_id: { type: 'string', format: 'uuid', example: '8a931920-58f1-4db8-bca7-8173426e2f42' },
+          pinned_version: { type: 'integer', nullable: true, example: 2 },
+        },
+      },
+      AttachedToolDetail: {
+        type: 'object',
+        required: ['tool_id', 'name', 'current_version', 'status', 'type'],
+        properties: {
+          tool_id: { type: 'string', format: 'uuid', example: '8a931920-58f1-4db8-bca7-8173426e2f42' },
+          name: { type: 'string', example: 'math_calculator' },
+          pinned_version: { type: 'integer', nullable: true, example: null },
+          current_version: { type: 'integer', example: 2 },
+          status: { type: 'string', example: 'verified' },
+          type: { type: 'string', enum: ['client', 'mcp'], example: 'client' },
+        },
+      },
+      AgentResponse: {
+        type: 'object',
+        required: ['id', 'name', 'description', 'system_prompt', 'model_provider', 'model_id', 'model_params', 'avatar', 'attached_tools', 'attached_connectors', 'is_archived', 'created_at', 'updated_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid', example: 'e4b2d184-722a-4632-a5e2-040212a42167' },
+          name: { type: 'string', example: 'Dr. Elena Vance' },
+          description: { type: 'string', example: 'Senior Quant Specialist' },
+          system_prompt: { type: 'string', example: 'You analyze formulas rigorously.' },
+          source_preset_id: { type: 'string', format: 'uuid', nullable: true },
+          model_provider: { type: 'string', example: 'google' },
+          model_id: { type: 'string', example: 'gemini-2.5-flash' },
+          model_params: { type: 'object' },
+          avatar: { $ref: '#/components/schemas/BlobbieConfig' },
+          attached_tools: { type: 'array', items: { $ref: '#/components/schemas/AttachedToolDetail' } },
+          attached_connectors: { type: 'array', items: { type: 'string', enum: ['postgres', 'slack'] } },
+          is_archived: { type: 'boolean', example: false },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      AgentsListResponse: {
+        type: 'object',
+        required: ['success', 'agents'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          agents: { type: 'array', items: { $ref: '#/components/schemas/AgentResponse' } },
+        },
+      },
+      CreateAgentRequest: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 100, example: 'Dr. Elena Vance' },
+          description: { type: 'string', maxLength: 500, example: 'Senior Quant Specialist' },
+          system_prompt: { type: 'string', example: 'You analyze formulas rigorously.' },
+          source_preset_id: { type: 'string', format: 'uuid', nullable: true },
+          model_provider: { type: 'string', enum: ['google', 'openai', 'anthropic', 'deepseek'], example: 'google' },
+          model_id: { type: 'string', example: 'gemini-2.5-flash' },
+          model_params: { type: 'object' },
+          avatar: { $ref: '#/components/schemas/BlobbieConfig' },
+          attached_tools: { type: 'array', items: { $ref: '#/components/schemas/AttachedToolInput' } },
+          attached_connectors: { type: 'array', items: { type: 'string', enum: ['postgres', 'slack'] } },
+        },
+      },
+      UpdateAgentRequest: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          description: { type: 'string', maxLength: 500 },
+          system_prompt: { type: 'string' },
+          source_preset_id: { type: 'string', format: 'uuid', nullable: true },
+          model_provider: { type: 'string', enum: ['google', 'openai', 'anthropic', 'deepseek'] },
+          model_id: { type: 'string' },
+          model_params: { type: 'object' },
+          avatar: { $ref: '#/components/schemas/BlobbieConfig' },
+          attached_tools: { type: 'array', items: { $ref: '#/components/schemas/AttachedToolInput' } },
+          attached_connectors: { type: 'array', items: { type: 'string', enum: ['postgres', 'slack'] } },
+          is_archived: { type: 'boolean' },
+        },
+      },
+      ChatToolCall: {
+        type: 'object',
+        required: ['id', 'tool_id', 'tool_name', 'input', 'status'],
+        properties: {
+          id: { type: 'string', example: 'call_math_1' },
+          tool_id: { type: 'string', example: '8a931920-58f1-4db8-bca7-8173426e2f42' },
+          tool_name: { type: 'string', example: 'math_calculator' },
+          input: { type: 'object' },
+          output: {},
+          error: { type: 'string', nullable: true },
+          duration_ms: { type: 'integer', example: 14 },
+          status: { type: 'string', enum: ['running', 'completed', 'failed', 'unavailable'], example: 'completed' },
+        },
+      },
+      ChatMessage: {
+        type: 'object',
+        required: ['id', 'chat_id', 'role', 'content', 'tool_calls', 'created_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid', example: '11d1fa01-0941-4775-9ba4-f5a0b7774130' },
+          chat_id: { type: 'string', format: 'uuid', example: '7b084922-261c-43f6-9fcf-bdf0716fa55a' },
+          role: { type: 'string', enum: ['user', 'assistant', 'system'], example: 'user' },
+          content: { type: 'string', example: 'Evaluate 42 * 17' },
+          tool_calls: { type: 'array', items: { $ref: '#/components/schemas/ChatToolCall' } },
+          error: { type: 'string', nullable: true },
+          created_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      ChatSessionSummary: {
+        type: 'object',
+        required: ['id', 'agent_id', 'title', 'message_count', 'is_archived', 'created_at', 'updated_at'],
+        properties: {
+          id: { type: 'string', format: 'uuid', example: '7b084922-261c-43f6-9fcf-bdf0716fa55a' },
+          agent_id: { type: 'string', format: 'uuid', example: 'e4b2d184-722a-4632-a5e2-040212a42167' },
+          title: { type: 'string', example: 'Quantum Algorithm Bounds' },
+          message_count: { type: 'integer', example: 8 },
+          last_message_preview: { type: 'string', example: 'The calculation was 42 * 17 = 714...' },
+          is_archived: { type: 'boolean', example: false },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      ChatSessionDetail: {
+        type: 'object',
+        required: ['id', 'agent_id', 'title', 'message_count', 'is_archived', 'created_at', 'updated_at', 'messages'],
+        properties: {
+          id: { type: 'string', format: 'uuid', example: '7b084922-261c-43f6-9fcf-bdf0716fa55a' },
+          agent_id: { type: 'string', format: 'uuid', example: 'e4b2d184-722a-4632-a5e2-040212a42167' },
+          title: { type: 'string', example: 'Quantum Algorithm Bounds' },
+          message_count: { type: 'integer', example: 2 },
+          last_message_preview: { type: 'string', example: 'Regarding your calculation...' },
+          is_archived: { type: 'boolean', example: false },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' },
+          messages: { type: 'array', items: { $ref: '#/components/schemas/ChatMessage' } },
+        },
+      },
+      ChatsListResponse: {
+        type: 'object',
+        required: ['success', 'chats', 'total'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          chats: { type: 'array', items: { $ref: '#/components/schemas/ChatSessionSummary' } },
+          total: { type: 'integer', example: 1 },
+        },
+      },
+      CreateChatRequest: {
+        type: 'object',
+        required: ['agent_id'],
+        properties: {
+          agent_id: { type: 'string', format: 'uuid', example: 'e4b2d184-722a-4632-a5e2-040212a42167' },
+          title: { type: 'string', maxLength: 200, example: 'Quantum Algorithm Bounds' },
+        },
+      },
+      UpdateChatRequest: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', maxLength: 200 },
+          is_archived: { type: 'boolean' },
+        },
+      },
+      AddMessagesRequest: {
+        type: 'object',
+        required: ['messages'],
+        properties: {
+          messages: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['role'],
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                role: { type: 'string', enum: ['user', 'assistant', 'system'] },
+                content: { type: 'string', default: '' },
+                tool_calls: { type: 'array', items: { $ref: '#/components/schemas/ChatToolCall' } },
+                error: { type: 'string', nullable: true },
+                created_at: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+        },
+      },
+      AddMessagesResponse: {
+        type: 'object',
+        required: ['success', 'count', 'messages'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          count: { type: 'integer', example: 2 },
+          messages: { type: 'array', items: { $ref: '#/components/schemas/ChatMessage' } },
+        },
+      },
+      UserSettingsResponse: {
+        type: 'object',
+        required: ['user_id', 'theme', 'extra'],
+        properties: {
+          user_id: { type: 'string', format: 'uuid' },
+          theme: { type: 'string', enum: ['system', 'light', 'dark'], example: 'system' },
+          extra: { type: 'object' },
+          updated_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      UpdateUserSettingsRequest: {
+        type: 'object',
+        properties: {
+          theme: { type: 'string', enum: ['system', 'light', 'dark'] },
+          extra: { type: 'object' },
         },
       },
     },
@@ -2116,6 +2346,374 @@ const openApiSpec = {
         },
       },
     },
+    '/agents': {
+      get: {
+        tags: ['agents'],
+        summary: 'List user agents',
+        security: [{ bearer: [] }],
+        parameters: [
+          { name: 'include_archived', in: 'query', schema: { type: 'boolean' } },
+          { name: 'search', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: {
+            description: 'List of agents',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentsListResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      post: {
+        tags: ['agents'],
+        summary: 'Create a new agent',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateAgentRequest' } } },
+        },
+        responses: {
+          201: {
+            description: 'Agent created',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentResponse' } } },
+          },
+          400: {
+            description: 'Invalid agent parameters',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/agents/export': {
+      post: {
+        tags: ['agents'],
+        summary: 'Export all user agents as JSON bundle',
+        security: [{ bearer: [] }],
+        responses: {
+          200: {
+            description: 'Exported bundle',
+            content: { 'application/json': { schema: { type: 'object' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/agents/{id}': {
+      get: {
+        tags: ['agents'],
+        summary: 'Get agent by ID',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Agent details',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Agent not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['agents'],
+        summary: 'Update an agent',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateAgentRequest' } } },
+        },
+        responses: {
+          200: {
+            description: 'Agent updated',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AgentResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Agent not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['agents'],
+        summary: 'Delete or archive an agent',
+        security: [{ bearer: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          { name: 'hard', in: 'query', schema: { type: 'boolean' } },
+        ],
+        responses: {
+          200: {
+            description: 'Agent deleted/archived',
+            content: { 'application/json': { schema: { type: 'object' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Agent not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/chats': {
+      get: {
+        tags: ['chats'],
+        summary: 'List user conversation sessions',
+        security: [{ bearer: [] }],
+        parameters: [
+          { name: 'agent_id', in: 'query', schema: { type: 'string', format: 'uuid' } },
+          { name: 'include_archived', in: 'query', schema: { type: 'boolean' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
+          { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 } },
+        ],
+        responses: {
+          200: {
+            description: 'List of chats',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatsListResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      post: {
+        tags: ['chats'],
+        summary: 'Create a new chat session',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateChatRequest' } } },
+        },
+        responses: {
+          201: {
+            description: 'Chat session created',
+            content: { 'application/json': { schema: { type: 'object' } } },
+          },
+          400: {
+            description: 'Invalid parameters',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Agent not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/chats/{id}': {
+      get: {
+        tags: ['chats'],
+        summary: 'Get chat session with full message history',
+        security: [{ bearer: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 100 } },
+          { name: 'before', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: {
+          200: {
+            description: 'Chat session with messages',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatSessionDetail' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Chat session not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['chats'],
+        summary: 'Rename or archive chat session',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateChatRequest' } } },
+        },
+        responses: {
+          200: {
+            description: 'Chat updated',
+            content: { 'application/json': { schema: { type: 'object' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Chat session not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      delete: {
+        tags: ['chats'],
+        summary: 'Delete chat session and all messages',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: {
+          200: {
+            description: 'Chat session deleted',
+            content: { 'application/json': { schema: { type: 'object' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Chat session not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/chats/{id}/messages': {
+      post: {
+        tags: ['chats'],
+        summary: 'Append messages to chat session',
+        security: [{ bearer: [] }],
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/AddMessagesRequest' } } },
+        },
+        responses: {
+          201: {
+            description: 'Messages appended',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/AddMessagesResponse' } } },
+          },
+          400: {
+            description: 'Invalid messages',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Chat session not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/chats/{id}/messages/{messageId}': {
+      delete: {
+        tags: ['chats'],
+        summary: 'Remove an individual message from chat session',
+        security: [{ bearer: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          { name: 'messageId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+        ],
+        responses: {
+          200: {
+            description: 'Message removed',
+            content: { 'application/json': { schema: { type: 'object' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          404: {
+            description: 'Message not found',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
+    '/users/me/settings': {
+      get: {
+        tags: ['settings'],
+        summary: 'Get user settings',
+        security: [{ bearer: [] }],
+        responses: {
+          200: {
+            description: 'User settings',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/UserSettingsResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      put: {
+        tags: ['settings'],
+        summary: 'Upsert user settings',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateUserSettingsRequest' } } },
+        },
+        responses: {
+          200: {
+            description: 'Updated user settings',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/UserSettingsResponse' } } },
+          },
+          400: {
+            description: 'Invalid settings',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+      patch: {
+        tags: ['settings'],
+        summary: 'Update user settings',
+        security: [{ bearer: [] }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateUserSettingsRequest' } } },
+        },
+        responses: {
+          200: {
+            description: 'Updated user settings',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/UserSettingsResponse' } } },
+          },
+          400: {
+            description: 'Invalid settings',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+          401: {
+            description: 'Unauthorized',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -2139,6 +2737,9 @@ export function createApp() {
   app.route('/admin/mcp', adminMcpRouter);
   app.route('/internal/mcp', internalMcpRouter);
   app.route('/marketplace', marketplaceRouter);
+  app.route('/agents', agentsRouter);
+  app.route('/chats', chatsRouter);
+  app.route('/users/me/settings', settingsRouter);
 
   // OpenAPI spec endpoint (consumed by Scalar UI)
   app.get('/api/openapi.json', (c) => c.json(openApiSpec));
